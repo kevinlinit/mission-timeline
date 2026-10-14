@@ -87,3 +87,14 @@ test("import rejects files without missions", () => {
   assert.throws(() => MT.importData('{"hello": 1}'), /doesn't contain any missions/);
   assert.throws(() => MT.importData("not json"));
 });
+
+test("the Japan trip example is a valid, finished mission", () => {
+  const m = MT.cleanMission(require("../js/demo-japan.js"));
+  assert.equal(m.blocks.length, 151);
+  for (const b of m.blocks) assert.ok(MT.toMin(b.s) !== null && MT.toMin(b.e) !== null, b.title);
+  assert.ok(m.blocks.some((b) => b.dl));
+  assert.equal(Object.keys(m.memos).length, 10);
+  const after = MT.liveState(m, Date.UTC(2026, 9, 6));
+  assert.equal(after.phase, "after");
+  assert.equal(after.tally.done + after.tally.changed, 147);
+});

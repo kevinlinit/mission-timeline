@@ -4,6 +4,10 @@ Plan anything with a date and a goal as a live, hour-by-hour timeline: a hike, a
 
 The method comes from a nine-night trip across Kyushu and Shikoku that ran on a minute-by-minute timeline, rain delays and a night lost in the fog included. It worked well enough to use for everything else.
 
+> **This is the `japan-trip-demo` branch.** It opens with that trip loaded as the example mission: 151 blocks over 10 days (26 Sep to 5 Oct 2026, Japan time), the hard deadlines, a note for every day, and each block marked done or changed as it actually happened. Delete it in the app to start clean; the start screen can add it back.
+>
+> Live demo: https://kevinlinit.github.io/mission-timeline/
+
 ## The method
 
 1. **Blocks.** Break the mission into timed blocks, each with a type: prep, do, move, rest, fuel or admin.
@@ -32,7 +36,7 @@ npx serve .
 python3 -m http.server
 ```
 
-To put it online for free, turn on GitHub Pages: **Settings → Pages → Deploy from a branch → `main` / root**.
+To put it online for free, turn on GitHub Pages: **Settings → Pages → Deploy from a branch → `main` / root**. (This demo is deployed from `japan-trip-demo` / root.)
 
 ## Tests
 
@@ -51,6 +55,7 @@ index.html        page shell
 css/styles.css    styles, light and dark themes
 js/core.js        pure logic: times, templates, live state, import/export
 js/app.js         UI and localStorage
+js/demo-japan.js  the example mission (the Kyushu & Shikoku trip)
 test/             node:test suite for core.js
 ```
 

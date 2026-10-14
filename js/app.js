@@ -12,7 +12,9 @@
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      return raw ? JSON.parse(raw).map(cleanMission) : [];
+      if (raw) return JSON.parse(raw).map(cleanMission);
+      return window.MT_DEMO ? [cleanMission(window.MT_DEMO)] : []; // first visit: show the example
+
     } catch (e) {
       canSave = false;
       return [];
@@ -30,7 +32,7 @@
 
   // ---------- state ----------
   let missions = load();
-  let selId = (() => { try { return localStorage.getItem(SEL_KEY); } catch (e) { return null; } })();
+  let selId = (() => { try { return localStorage.getItem(SEL_KEY); } catch (e) { return null; } })() || missions[0]?.id || null;
   let editing = null; // {blockId}
   let memoEditing = null; // date
   let panel = null; // "new" | null
@@ -85,7 +87,7 @@
     return `<section class="empty">
       <h2>${first ? "No missions yet" : "Start a new mission"}</h2>
       <p class="muted" style="margin:0;max-width:60ch">${first ? "A mission is anything with a date and a goal: a hike, an interview, a training week, a date. " : ""}Start from a template or build it yourself.</p>
-      <div class="tpls">${Object.entries(TEMPLATES).map(([k, t]) => `<button class="tpl" data-tpl="${k}"><b>${t.emoji} ${esc(t.label)}</b><span>${esc(t.blurb)}</span></button>`).join("")}</div>
+      <div class="tpls">${window.MT_DEMO && !missions.some((m) => m.id === window.MT_DEMO.id) ? `<button class="tpl" data-demo="1"><b>${esc(window.MT_DEMO.emoji)} Example: ${esc(window.MT_DEMO.name)}</b><span>The real trip this method came from, with every block marked as it happened.</span></button>` : ""}${Object.entries(TEMPLATES).map(([k, t]) => `<button class="tpl" data-tpl="${k}"><b>${t.emoji} ${esc(t.label)}</b><span>${esc(t.blurb)}</span></button>`).join("")}</div>
       <div class="panel">
         <h2>Build it yourself</h2>
         <div class="grid">
@@ -98,7 +100,9 @@
     </section>`;
   }
   function bindStart() {
-    document.querySelectorAll(".tpl").forEach((b) => (b.onclick = () => createMission(TEMPLATES[b.dataset.tpl].build())));
+    document.querySelectorAll(".tpl[data-tpl]").forEach((b) => (b.onclick = () => createMission(TEMPLATES[b.dataset.tpl].build())));
+    const demo = document.querySelector(".tpl[data-demo]");
+    if (demo) demo.onclick = () => { const m = cleanMission(window.MT_DEMO); missions.push(m); selId = m.id; panel = null; persist(); render(); setStatus("Example added."); };
     $("#nm-go").onclick = () => {
       const name = $("#nm-name").value.trim();
       if (!name) { $("#nm-name").focus(); setStatus("Give the mission a name.", true); return; }
