@@ -1,0 +1,11 @@
+{
+  "name": "mission-timeline",
+  "version": "0.1.0",
+  "description": "Plan any mission as a live timeline: timed blocks, hard deadlines, Plan B branches and a debrief.",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/core.test.js",
+    "start": "npx serve ."
+  },
+  "engines": { "node": ">=18" }
+}
