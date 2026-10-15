@@ -1,11 +1,14 @@
 {
   "name": "mission-timeline",
-  "version": "0.1.0",
-  "description": "Plan any mission as a live timeline: timed blocks, hard deadlines, Plan B branches and a debrief.",
+  "version": "0.2.0",
+  "description": "Mission Timeline API: serves timeline metadata to the web and iOS clients, as a Node server or a static JSON export.",
   "private": true,
+  "type": "module",
   "scripts": {
-    "test": "node --test test/core.test.js",
-    "start": "npx serve ."
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "build": "node scripts/build.js",
+    "test": "node --test test/*.test.js"
   },
-  "engines": { "node": ">=18" }
+  "engines": { "node": ">=20" }
 }

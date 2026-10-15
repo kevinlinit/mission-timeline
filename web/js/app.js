@@ -1,18 +1,29 @@
-/* Mission Timeline UI. Depends on js/core.js (window.MT). Saves to localStorage. */
-(function () {
-  "use strict";
-  const { CATS, pad, rid, isoDate, toMin, blockTimes, dur, dayLabel, countdown, cleanBlock, cleanMission, sorted, liveState, TEMPLATES, WD, MO } = window.MT;
+/*
+ * Mission Timeline web client. Missions are kept in this browser (localStorage); published examples
+ * come from the Mission Timeline API. Time logic is the shared core the API uses.
+ */
+import {
+  CATS, MO, TEMPLATES, WD, blockTimes, cleanBlock, cleanMission, countdown, dayLabel, dur, emojiOf, exportData,
+  floatingNow, hhmm, importData, isoDate, pad, rid, sorted, liveState, timelineDays, toMin,
+} from "../core/index.js";
+import { listExamples, getMission } from "./api.js";
+
+{
   const KEY = "mission-timeline:v1";
   const SEL_KEY = "mission-timeline:selected";
   const MODE_KEY = "mission-timeline:mode";
+  /** "Now" on a mission's wall clock: in its time zone if it has one, otherwise this browser's. */
+  const nowFor = (m) => floatingNow(Date.now(), m?.tz || "");
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   // ---------- storage ----------
   let canSave = true;
+  let firstVisit = false;
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
+      firstVisit = raw === null;
       return raw ? JSON.parse(raw).map(cleanMission) : [];
     } catch (e) {
       canSave = false;
@@ -38,6 +49,7 @@
   let editing = null; // {blockId}
   let memoEditing = null; // date
   let panel = null; // "new" | null
+  let examples = []; // summaries of published examples, from the API
 
   function setStatus(t, err) { const el = $("#status"); el.textContent = t || ""; el.classList.toggle("err", !!err); }
   const current = () => missions.find((m) => m.id === selId) || null;
@@ -51,6 +63,18 @@
     missions.push(m); selId = m.id; panel = null; editMode = true;
     persist(); render(); setStatus("Mission created.");
     return m;
+  }
+  async function addExample(id, { select = true } = {}) {
+    try {
+      const m = cleanMission(await getMission(id));
+      if (missions.some((x) => x.id === m.id)) return;
+      missions.push(m);
+      if (select || !selId) selId = m.id;
+      panel = null;
+      persist(); render(); setStatus("Example added.");
+    } catch (e) {
+      setStatus(e.message, true);
+    }
   }
   function removeMission(id) {
     missions = missions.filter((m) => m.id !== id);
@@ -97,7 +121,7 @@
     return `<section class="empty">
       <h2>${first ? "No missions yet" : "Start a new mission"}</h2>
       <p class="muted" style="margin:0;max-width:60ch">${first ? "A mission is anything with a date and a goal: a hike, an interview, a training week, a date. " : ""}Start from a template or build it yourself.</p>
-      <div class="tpls">${Object.entries(TEMPLATES).map(([k, t]) => `<button class="tpl" data-tpl="${k}"><b>${t.emoji} ${esc(t.label)}</b><span>${esc(t.blurb)}</span></button>`).join("")}</div>
+      <div class="tpls">${examples.filter((x) => !missions.some((m) => m.id === x.id)).map((x) => `<button class="tpl" data-example="${esc(x.id)}"><b>${esc(x.emoji)} Example: ${esc(x.name)}</b><span>${esc(x.goal)}</span></button>`).join("")}${Object.entries(TEMPLATES).map(([k, t]) => `<button class="tpl" data-tpl="${k}"><b>${t.emoji} ${esc(t.label)}</b><span>${esc(t.blurb)}</span></button>`).join("")}</div>
       <div class="panel">
         <h2>Build it yourself</h2>
         <div class="grid">
@@ -110,7 +134,8 @@
     </section>`;
   }
   function bindStart() {
-    document.querySelectorAll(".tpl").forEach((b) => (b.onclick = () => createMission(TEMPLATES[b.dataset.tpl].build())));
+    document.querySelectorAll(".tpl[data-tpl]").forEach((b) => (b.onclick = () => createMission(TEMPLATES[b.dataset.tpl].build(floatingNow()))));
+    document.querySelectorAll(".tpl[data-example]").forEach((b) => (b.onclick = () => addExample(b.dataset.example)));
     $("#nm-go").onclick = () => {
       const name = $("#nm-name").value.trim();
       if (!name) { $("#nm-name").focus(); setStatus("Give the mission a name.", true); return; }
@@ -121,11 +146,11 @@
 
   function rowHTML(b) {
     const [t0, t1] = blockTimes(b);
-    const em = b.em || CATS[b.cat][1];
+    const em = emojiOf(b);
     const tags = (b.fixed ? "" : '<span class="tag">Estimated</span>') + (b.opt && !b.branch ? '<span class="tag">Optional</span>' : "") +
       (b.status ? `<span class="tag ${b.status}">${b.status[0].toUpperCase() + b.status.slice(1)}</span>` : "");
     const st = (s) => `<button class="btn" data-act="${s}" data-id="${esc(b.id)}" aria-pressed="${b.status === s}">${s === "done" ? "✓ Done" : s === "changed" ? "~ Changed" : "✕ Skipped"}</button>`;
-    const nextDay = t1 > t0 && new Date(t1).getDate() !== new Date(t0).getDate();
+    const nextDay = t1 > t0 && isoDate(t1) !== isoDate(t0);
     return `<li class="row b${b.fixed ? "" : " est"}${b.status === "skipped" ? " skipped" : ""}" data-t0="${t0}" data-t1="${t1}" style="--c:var(--${b.cat})">
       <div class="tm num">${esc(b.s)}<small>${dur(Math.round((t1 - t0) / 60000))}</small></div><div class="rail"><div class="seg"></div></div>
       <div class="card"><div class="t"><span class="em" aria-hidden="true">${esc(em)}</span>${esc(b.title)}<span class="tag now" hidden>Now</span>${tags}</div>
@@ -136,39 +161,26 @@
 
   function renderTimeline(m) {
     if (!m.blocks.length) return `<p class="muted" style="margin-top:18px">${editMode ? "No blocks yet. Add the first one below: start with the hard deadline, then work backwards." : "No blocks yet. Switch to Edit to add the first one."}</p>`;
-    const all = sorted(m);
-    const days = [...new Set(all.map((b) => b.date))];
-    return days.map((date) => {
-      const list = all.filter((b) => b.date === date);
-      const mainList = list.filter((b) => !b.branch);
-      const items = [];
-      mainList.forEach((b) => { const t = blockTimes(b)[0]; if (b.dl) items.push({ k: "d", t, b }); items.push({ k: "b", t, b }); });
-      const groups = {};
-      list.filter((b) => b.branch).forEach((b) => (groups[b.branch] = groups[b.branch] || []).push(b));
-      Object.entries(groups).forEach(([lab, bs]) => items.push({ k: "g", t: blockTimes(bs[0])[0], lab, bs }));
-      const ord = { d: 0, b: 1, g: 2 };
-      items.sort((a, b) => a.t - b.t || ord[a.k] - ord[b.k]);
-      const nDl = mainList.filter((b) => b.dl).length;
-      const memo = m.memos[date] || "";
+    return timelineDays(m).map(({ date, label, memo, blocks: nMain, deadlines: nDl, items }) => {
       const memoHTML = !editMode ? (memo ? `<p class="memo">${esc(memo)}</p>` : "")
         : memoEditing === date
         ? `<div class="memo-edit"><label class="field" for="memo-in">What happened on this day<textarea id="memo-in" maxlength="600">${esc(memo)}</textarea></label>
             <div class="row-actions"><button class="btn primary small" id="memo-save" data-date="${date}">Save note</button><button class="btn small" id="memo-cancel">Cancel</button></div></div>`
         : memo ? `<p class="memo">${esc(memo)}</p><button class="btn small" data-memo="${date}">Edit note</button>`
         : `<button class="btn small" data-memo="${date}" style="margin-top:8px">Write what happened</button>`;
-      return `<section class="day"><div class="dayhead"><h3>${esc(dayLabel(date))}</h3><small>${mainList.length} blocks${nDl ? `, <span style="color:var(--hard)">${nDl} deadline${nDl > 1 ? "s" : ""}</span>` : ""}</small></div>
+      return `<section class="day"><div class="dayhead"><h3>${esc(label)}</h3><small>${nMain} block${nMain === 1 ? "" : "s"}${nDl ? `, <span style="color:var(--hard)">${nDl} deadline${nDl > 1 ? "s" : ""}</span>` : ""}</small></div>
         ${memoHTML}
-        <ol class="rows">${items.map((it) => it.k === "d"
-          ? `<li class="row dl" data-t="${it.t}"><div class="tm num">${esc(it.b.s)}</div><div class="rail"><span></span></div><div class="card">${esc(it.b.title)}</div></li>`
-          : it.k === "g" ? `<li class="branchgrp"><div class="bh">🔀 Plan B · ${esc(it.lab)}</div><ol>${it.bs.map(rowHTML).join("")}</ol></li>`
-          : rowHTML(it.b)).join("")}</ol></section>`;
+        <ol class="rows">${items.map((it) => it.type === "deadline"
+          ? `<li class="row dl" data-t="${blockTimes(it.block)[0]}"><div class="tm num">${esc(it.block.s)}</div><div class="rail"><span></span></div><div class="card">${esc(it.block.title)}</div></li>`
+          : it.type === "planB" ? `<li class="branchgrp"><div class="bh">🔀 Plan B · ${esc(it.label)}</div><ol>${it.blocks.map(rowHTML).join("")}</ol></li>`
+          : rowHTML(it.block)).join("")}</ol></section>`;
     }).join("");
   }
 
   function renderEditor(m) {
     const b = editing && editing.blockId ? m.blocks.find((x) => x.id === editing.blockId) : null;
     const last = sorted(m).filter((x) => !x.branch).pop();
-    const d = b || { date: last ? last.date : isoDate(new Date()), s: last ? last.e : "09:00", e: "", cat: "do", title: "", note: "", em: "", fixed: false, opt: false, dl: false, branch: "" };
+    const d = b || { date: last ? last.date : isoDate(nowFor(m)), s: last ? last.e : "09:00", e: "", cat: "do", title: "", note: "", em: "", fixed: false, opt: false, dl: false, branch: "" };
     if (!b) { const s = toMin(d.s) ?? 540; const e = (s + 60) % 1440; d.e = `${pad(Math.floor(e / 60))}:${pad(e % 60)}`; }
     return `<section class="panel" id="editor"><h2>${b ? "Edit block" : "Add a block"}</h2>
       <div class="grid">
@@ -242,11 +254,11 @@
   function tick() {
     const live = $("#live"); if (!live) return;
     const m = current(); if (!m) return;
-    const t = Date.now(), now = new Date(t);
+    const t = nowFor(m), now = new Date(t); // floating: read it with the UTC getters
     const st = liveState(m, t);
     const head = `<div class="live-top"><div><p class="mtitle">${esc(m.emoji)} ${esc(m.name)}</p>${m.goal ? `<p class="mgoal">${esc(m.goal)}</p>` : ""}</div>
-      <div class="clock num">${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())} <span class="muted" style="font-family:var(--sans);font-weight:400;font-size:13px">${WD[now.getDay()]} ${now.getDate()} ${MO[now.getMonth()]}</span></div></div>`;
-    const card = (lab, b, hard) => `<div class="nx${hard ? " hard" : ""}" style="${hard ? "" : `--c:var(--${b.cat})`}"><div class="t">${lab}</div><b>${esc(b.em || CATS[b.cat][1])} ${esc(b.title)}</b>
+      <div class="clock num">${hhmm(t)}:${pad(now.getUTCSeconds())} <span class="muted" style="font-family:var(--sans);font-weight:400;font-size:13px">${WD[now.getUTCDay()]} ${now.getUTCDate()} ${MO[now.getUTCMonth()]}${m.tz ? ` · ${esc(m.tz.split("/").pop().replace(/_/g, " "))} time` : ""}</span></div></div>`;
+    const card = (lab, b, hard) => `<div class="nx${hard ? " hard" : ""}" style="${hard ? "" : `--c:var(--${b.cat})`}"><div class="t">${lab}</div><b>${esc(emojiOf(b))} ${esc(b.title)}</b>
       <div class="t num">${b.date !== isoDate(now) ? esc(dayLabel(b.date)) + ", " : ""}${esc(b.s)}</div><div class="cd num">in ${countdown(blockTimes(b)[0] - t)}</div></div>`;
     const big = (ms) => countdown(ms).replace(/(\d+)([dhms])/g, "$1<span>$2</span>");
     let body = "";
@@ -265,7 +277,7 @@
       const c = st.current;
       if (c) {
         const [a, z] = blockTimes(c);
-        body = `<p class="lbl">Now, ${CATS[c.cat][0].toLowerCase()}</p><p class="nowtitle">${esc(c.em || CATS[c.cat][1])} ${esc(c.title)}</p>${c.note ? `<p style="margin:0 0 6px;max-width:62ch">${esc(c.note)}</p>` : ""}
+        body = `<p class="lbl">Now, ${CATS[c.cat][0].toLowerCase()}</p><p class="nowtitle">${esc(emojiOf(c))} ${esc(c.title)}</p>${c.note ? `<p style="margin:0 0 6px;max-width:62ch">${esc(c.note)}</p>` : ""}
           <div class="prog" style="--c:var(--${c.cat})"><i style="width:${(((t - a) / (z - a)) * 100).toFixed(1)}%"></i></div>
           <div class="progtxt num"><span>Started ${countdown(t - a)} ago</span><span>${countdown(z - t)} left</span></div>`;
       } else {
@@ -285,10 +297,10 @@
 
   // ---------- export / import ----------
   $("#export").onclick = () => {
-    const blob = new Blob([window.MT.exportData(missions)], { type: "application/json" });
+    const blob = new Blob([exportData(missions)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `missions-${isoDate(new Date())}.json`;
+    a.download = `missions-${isoDate(floatingNow())}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     setStatus(`Exported ${missions.length} mission${missions.length === 1 ? "" : "s"}.`);
@@ -297,7 +309,7 @@
     const file = e.target.files[0]; e.target.value = "";
     if (!file) return;
     try {
-      const incoming = window.MT.importData(await file.text());
+      const incoming = importData(await file.text());
       const ids = new Set(missions.map((m) => m.id));
       let added = 0, updated = 0;
       incoming.forEach((m) => { if (ids.has(m.id)) { missions[missions.findIndex((x) => x.id === m.id)] = m; updated++; } else { missions.push(m); added++; } });
@@ -305,7 +317,7 @@
       panel = null; persist(); render();
       setStatus(`Imported ${added} new mission${added === 1 ? "" : "s"}${updated ? ` and updated ${updated}` : ""}.`);
     } catch (err) {
-      setStatus(err instanceof SyntaxError ? "That file isn't valid JSON. Choose a file you exported from Mission Timeline." : err.message, true);
+      setStatus(err.message, true);
     }
   };
 
@@ -313,4 +325,11 @@
   if (!canSave) setStatus("This browser won't let the page save. Export your missions before you close it.", true);
   render();
   setInterval(tick, 1000);
-})();
+  listExamples()
+    .then((list) => {
+      examples = list;
+      if (firstVisit && !missions.length && list.length) return Promise.all(list.map((x, i) => addExample(x.id, { select: i === 0 })));
+      render();
+    })
+    .catch(() => {}); // offline or opened as a file: templates still work
+}

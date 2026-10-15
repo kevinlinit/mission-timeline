@@ -1,6 +1,9 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const MT = require("../js/core.js");
+import test from "node:test";
+import assert from "node:assert/strict";
+import * as MT from "../src/core/index.js";
+
+// Floating time: wall-clock ms as if UTC. Same result on every machine.
+const t = (y, mo, d, h = 0, mi = 0) => Date.UTC(y, mo - 1, d, h, mi);
 
 test("toMin parses valid times and rejects bad ones", () => {
   assert.equal(MT.toMin("00:00"), 0);
@@ -21,13 +24,39 @@ test("a zero-length block stays zero-length", () => {
   assert.equal(t1, t0);
 });
 
+test("floating time ignores DST: a night across the change is still 8 hours", () => {
+  const [t0, t1] = MT.blockTimes({ date: "2026-03-28", s: "23:00", e: "07:00" });
+  assert.equal(t1 - t0, 8 * 3600000);
+});
+
+test("floatingNow converts an instant to a time zone's wall clock", () => {
+  const instant = Date.parse("2026-10-01T22:20:00Z");
+  assert.equal(MT.floatingNow(instant, "Asia/Tokyo"), t(2026, 10, 2, 7, 20));
+  assert.equal(MT.floatingNow(instant, "UTC"), t(2026, 10, 1, 22, 20));
+  assert.equal(MT.floatingNow(instant, "America/New_York"), t(2026, 10, 1, 18, 20));
+});
+
+test("labels and countdowns", () => {
+  assert.equal(MT.dayLabel("2026-10-15"), "Thu 15 Oct");
+  assert.equal(MT.countdown(3 * 86400000 + 20 * 3600000 + 52 * 60000), "3d 20h 52m");
+  assert.equal(MT.countdown(3600000 + 5 * 60000 + 9000), "1h 05m 09s");
+  assert.equal(MT.countdown(-5), "0m 00s");
+  assert.equal(MT.dur(105), "1h 45m");
+});
+
 test("cleanBlock fills defaults and drops unknown values", () => {
-  const b = MT.cleanBlock({ title: "Run", cat: "nonsense", s: "7:00", e: "bad", status: "maybe" }, new Date(2026, 9, 15));
+  const b = MT.cleanBlock({ title: "Run", cat: "nonsense", s: "7:00", e: "bad", status: "maybe" }, t(2026, 10, 15));
   assert.equal(b.cat, "do");
   assert.equal(b.date, "2026-10-15");
   assert.equal(b.e, "7:00");
   assert.equal(b.status, "");
   assert.ok(b.id);
+});
+
+test("cleanMission keeps a valid time zone and drops a bad one", () => {
+  assert.equal(MT.cleanMission({ tz: "Asia/Tokyo" }).tz, "Asia/Tokyo");
+  assert.equal(MT.cleanMission({ tz: "Mars/Olympus" }).tz, "");
+  assert.deepEqual(MT.cleanMission({ memos: { "2026-10-01": "ok", nope: "x", "2026-10-02": 5 } }).memos, { "2026-10-01": "ok" });
 });
 
 test("liveState walks through before, during and after", () => {
@@ -39,19 +68,17 @@ test("liveState walks through before, during and after", () => {
       { date: "2026-10-10", s: "08:00", e: "09:00", title: "Rain plan", opt: true, branch: "If it rains" },
     ],
   });
-  const t = (h, mi = 0) => new Date(2026, 9, 10, h, mi).getTime();
-
-  const before = MT.liveState(m, t(7));
+  const before = MT.liveState(m, t(2026, 10, 10, 7));
   assert.equal(before.phase, "before");
   assert.equal(before.nextDeadline.title, "A");
 
-  const during = MT.liveState(m, t(8, 30));
+  const during = MT.liveState(m, t(2026, 10, 10, 8, 30));
   assert.equal(during.phase, "during");
   assert.equal(during.current.title, "A");
   assert.equal(during.next.title, "B");
   assert.equal(during.planB.length, 1);
 
-  const after = MT.liveState(m, t(11));
+  const after = MT.liveState(m, t(2026, 10, 10, 11));
   assert.equal(after.phase, "after");
   assert.deepEqual(after.tally, { done: 1, changed: 0, skipped: 0, unmarked: 1 });
 });
@@ -60,8 +87,8 @@ test("an empty mission has an empty live state", () => {
   assert.equal(MT.liveState(MT.cleanMission({}), Date.now()).phase, "empty");
 });
 
-test("every template builds valid future blocks with a hard deadline", () => {
-  const from = new Date(2026, 9, 15, 12, 0);
+test("every template builds valid future blocks with a hard deadline and a Plan B", () => {
+  const from = t(2026, 10, 15, 12);
   for (const [key, tpl] of Object.entries(MT.TEMPLATES)) {
     const m = MT.cleanMission(tpl.build(from));
     assert.ok(m.blocks.length >= 8, key);
@@ -69,21 +96,52 @@ test("every template builds valid future blocks with a hard deadline", () => {
     assert.ok(m.blocks.some((b) => b.branch), `${key} has a Plan B`);
     for (const b of m.blocks) assert.ok(MT.toMin(b.s) !== null && MT.toMin(b.e) !== null, `${key}: ${b.title}`);
     const first = Math.min(...m.blocks.map((b) => MT.blockTimes(b)[0]));
-    assert.ok(first > from.getTime(), `${key} starts in the future`);
+    assert.ok(first > from, `${key} starts in the future`);
   }
+  assert.equal(MT.TEMPLATES.workout.build(from).blocks[0].date, "2026-10-19", "training week starts next Monday");
+});
+
+test("timelineDays orders deadline, block and Plan B, and counts per day", () => {
+  const m = MT.cleanMission(MT.TEMPLATES.workout.build(t(2026, 10, 15, 12)));
+  const days = MT.timelineDays(m);
+  assert.equal(days.length, 7);
+  const sat = days[5];
+  assert.equal(sat.label, "Sat 24 Oct");
+  assert.equal(sat.deadlines, 1);
+  const kinds = sat.items.map((i) => i.type + ":" + (i.block?.title || i.label));
+  assert.deepEqual(kinds, [
+    "block:Travel to the trailhead",
+    "block:Long hike",
+    "planB:If it rains",
+    "deadline:Turn-back time",
+    "block:Turn-back time",
+    "block:Recovery meal",
+  ]);
+  const sleep = days[4].items.find((i) => i.block?.title === "Sleep early").block;
+  assert.equal(sleep.endsNextDay, true);
+  assert.equal(sleep.minutes, 480);
+  assert.equal(sleep.emoji, "😴");
+});
+
+test("summarize gives the span and counts", () => {
+  const m = MT.cleanMission(MT.TEMPLATES.date.build(t(2026, 10, 15, 12)));
+  const s = MT.summarize(m);
+  assert.equal(s.start, "2026-10-20T20:00");
+  assert.equal(s.end, "2026-10-25T11:10");
+  assert.equal(s.blocks, 9);
+  assert.equal(s.planB, 1);
+  assert.deepEqual(s.tally, { done: 0, changed: 0, skipped: 0, unmarked: 9 });
 });
 
 test("export and import round-trip", () => {
-  const m = MT.cleanMission(MT.TEMPLATES.date.build(new Date(2026, 9, 15)));
+  const m = MT.cleanMission(MT.TEMPLATES.date.build(t(2026, 10, 15)));
   m.memos["2026-10-17"] = "Great evening";
   const back = MT.importData(MT.exportData([m]));
   assert.equal(back.length, 1);
-  assert.equal(back[0].name, "Date night");
-  assert.equal(back[0].memos["2026-10-17"], "Great evening");
-  assert.equal(back[0].blocks.length, m.blocks.length);
+  assert.deepEqual(back[0], m);
 });
 
 test("import rejects files without missions", () => {
   assert.throws(() => MT.importData('{"hello": 1}'), /doesn't contain any missions/);
-  assert.throws(() => MT.importData("not json"));
+  assert.throws(() => MT.importData("not json"), /isn't valid JSON/);
 });

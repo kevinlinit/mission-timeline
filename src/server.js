@@ -1,0 +1,123 @@
+/**
+ * Mission Timeline server: the JSON API under /api/v1 plus the web app, with no dependencies.
+ *
+ *   npm start                     PORT=8080 HOST=0.0.0.0 DATA_DIR=./data
+ */
+import { createServer as createHttpServer } from "node:http";
+import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
+import { extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Repository } from "./api/repository.js";
+import { handle } from "./api/router.js";
+
+const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+};
+
+/** URL prefix -> folder. The web app imports the shared core from /core/. */
+const STATIC_MOUNTS = [
+  ["/core/", join(ROOT, "src", "core")],
+  ["/", join(ROOT, "web")],
+];
+
+const CACHE = {
+  static: "public, max-age=60",
+  dynamic: "no-cache",
+  none: "no-store",
+};
+
+export function createServer({ dataDir = join(ROOT, "data"), repo = Repository.fromDir(dataDir), now = () => Date.now(), log = () => {} } = {}) {
+  const server = createHttpServer(async (req, res) => {
+    const started = Date.now();
+    try {
+      const url = new URL(req.url, "http://localhost");
+      // The iOS app's update feed lives at /ios/latest.json on the public site.
+      const path = url.pathname === "/ios/latest.json" ? "/api/v1/ios/latest.json" : url.pathname;
+      if (path === "/api" || path.startsWith("/api/")) {
+        const r = handle(repo, { method: req.method, path, query: url.searchParams }, now());
+        sendJson(req, res, r, url.searchParams.has("pretty"));
+      } else {
+        await serveStatic(req, res, path);
+      }
+    } catch (e) {
+      sendJson(req, res, { status: 500, body: { error: { code: "internal", message: "Something went wrong." } }, cache: "none" });
+      console.error(e);
+    } finally {
+      log(`${req.method} ${req.url} ${res.statusCode} ${Date.now() - started}ms`);
+    }
+  });
+  server.repo = repo;
+  return server;
+}
+
+function cors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "If-None-Match, Accept");
+  res.setHeader("Access-Control-Expose-Headers", "ETag");
+}
+
+/** JSON response with CORS, caching, ETag/304 and gzip. `?pretty` indents it for reading. */
+function sendJson(req, res, { status, body, cache, allow }, pretty = false) {
+  cors(res);
+  if (allow) res.setHeader("Allow", allow);
+  res.setHeader("Cache-Control", CACHE[cache] || CACHE.none);
+  if (body === null) { res.writeHead(status).end(); return; }
+  const text = JSON.stringify(body, null, pretty ? 2 : 0) + "\n";
+  const etag = `"${createHash("sha1").update(text).digest("base64url").slice(0, 20)}"`;
+  res.setHeader("ETag", etag);
+  res.setHeader("Content-Type", MIME[".json"]);
+  if (status === 200 && req.headers["if-none-match"] === etag) { res.writeHead(304).end(); return; }
+  res.setHeader("Vary", "Accept-Encoding");
+  let payload = Buffer.from(text);
+  if (payload.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    payload = gzipSync(payload);
+    res.setHeader("Content-Encoding", "gzip");
+  }
+  res.setHeader("Content-Length", payload.length);
+  res.writeHead(status).end(req.method === "HEAD" ? undefined : payload);
+}
+
+async function serveStatic(req, res, path) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    res.writeHead(405).end();
+    return;
+  }
+  const [prefix, dir] = STATIC_MOUNTS.find(([p]) => path.startsWith(p));
+  let rel = decodeURIComponent(path.slice(prefix.length));
+  if (rel === "" || rel.endsWith("/")) rel += "index.html";
+  const file = resolve(dir, rel);
+  if (file !== dir && !file.startsWith(dir + sep)) { res.writeHead(403).end(); return; } // no ../ escapes
+  try {
+    if (!(await stat(file)).isFile()) throw new Error("not a file");
+    const data = await readFile(file);
+    res.setHeader("Content-Type", MIME[extname(file)] || "application/octet-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Content-Length", data.length);
+    res.writeHead(200).end(req.method === "HEAD" ? undefined : data);
+  } catch {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.writeHead(404).end("Not found\n");
+  }
+}
+
+// Run directly: node src/server.js
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const port = Number(process.env.PORT) || 8080;
+  const host = process.env.HOST || "127.0.0.1";
+  const server = createServer({ dataDir: process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : undefined, log: (l) => console.log(l) });
+  server.listen(port, host, () => {
+    console.log(`Mission Timeline on http://${host}:${port}  (API: /api/v1.json, ${server.repo.missions().length} missions, data revision ${server.repo.revision})`);
+  });
+}
