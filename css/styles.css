@@ -144,3 +144,8 @@ h2,h3{text-wrap:balance}
 label.btn{display:inline-block}
 [hidden]{display:none!important}
 .planb-now{margin:10px 0 0;padding:8px 10px;border:1.5px dashed var(--do);border-radius:8px;font-size:14px}
+
+/* read / edit mode */
+[hidden]{display:none!important}
+.missions .mode{margin-left:auto}
+.mode[aria-pressed="true"]{background:var(--ok);border-color:var(--ok);color:#fff}
