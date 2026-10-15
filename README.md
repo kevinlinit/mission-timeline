@@ -21,6 +21,7 @@ The method comes from a nine-night trip across Kyushu and Shikoku that ran on a 
 - **Live panel:** what to do now, what's next, and a countdown to the next hard deadline. Before the mission it counts down to the start; afterwards it shows the debrief tally.
 - **Timeline:** day by day, with deadlines and Plan B branches shown in place.
 - **Templates:** interview prep, a training week with a turn-back time on the long hike, and a date night.
+- **Read and Edit modes:** the plan opens in a clean read-only view. Tap **✏️ Edit** to mark blocks, write notes, add or change blocks and edit the mission; **✓ Done editing** goes back. The app remembers which mode you were in.
 - **Debrief:** done / changed / skipped on every block, a note for every day, and a highlight for the mission.
 - **Export and import:** back up your missions as JSON or move them to another device.
 

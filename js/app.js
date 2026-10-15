@@ -4,6 +4,7 @@
   const { CATS, pad, rid, isoDate, toMin, blockTimes, dur, dayLabel, countdown, cleanBlock, cleanMission, sorted, liveState, TEMPLATES, WD, MO } = window.MT;
   const KEY = "mission-timeline:v1";
   const SEL_KEY = "mission-timeline:selected";
+  const MODE_KEY = "mission-timeline:mode";
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -24,6 +25,7 @@
     try {
       localStorage.setItem(KEY, JSON.stringify(missions));
       localStorage.setItem(SEL_KEY, selId || "");
+      localStorage.setItem(MODE_KEY, editMode ? "edit" : "read");
     } catch (e) {
       canSave = false;
       setStatus("This browser won't let the page save. Export your missions before you close it.", true);
@@ -33,6 +35,8 @@
   // ---------- state ----------
   let missions = load();
   let selId = (() => { try { return localStorage.getItem(SEL_KEY); } catch (e) { return null; } })() || missions[0]?.id || null;
+  // Read mode (the default) shows the plan without any controls; Edit mode adds them.
+  let editMode = (() => { try { return localStorage.getItem(MODE_KEY) === "edit"; } catch (e) { return false; } })();
   let editing = null; // {blockId}
   let memoEditing = null; // date
   let panel = null; // "new" | null
@@ -46,7 +50,7 @@
   }
   function createMission(data) {
     const m = cleanMission({ ...data, id: rid(), createdAt: Date.now() });
-    missions.push(m); selId = m.id; panel = null;
+    missions.push(m); selId = m.id; panel = null; editMode = true;
     persist(); render(); setStatus("Mission created.");
     return m;
   }
@@ -57,7 +61,14 @@
   }
 
   // ---------- render ----------
+  function setMode(on) {
+    editMode = on; editing = null; memoEditing = null; if (!on) panel = null;
+    persist(); render(); setStatus(on ? "Edit mode: change blocks, notes and the mission." : "");
+  }
+
   function render() {
+    document.body.classList.toggle("reading", !editMode);
+    $("#import-btn").hidden = !editMode && missions.length > 0; // a first visit can still import a backup
     renderChips();
     const main = $("#main");
     if (!missions.length || panel) { main.innerHTML = renderStart(!missions.length); bindStart(); return; }
@@ -69,8 +80,7 @@
         <li><span class="sw" style="--c:var(--hard);transform:rotate(45deg) scale(.8)"></span>Hard deadline</li>
         <li><span class="sw" style="border:1.5px dashed var(--do);background:none"></span>Plan B</li></ul>
       <div id="timeline">${renderTimeline(m)}</div>
-      ${renderEditor(m)}
-      ${renderMissionSettings(m)}`;
+      ${editMode ? renderEditor(m) + renderMissionSettings(m) : ""}`;
     bindMission(m);
     tick();
   }
@@ -78,9 +88,11 @@
   function renderChips() {
     const el = $("#missions");
     el.innerHTML = missions.map((m) => `<button class="chip" data-id="${esc(m.id)}" aria-pressed="${m.id === selId && !panel}">${esc(m.emoji)} ${esc(m.name)}</button>`).join("") +
-      `<button class="btn small primary" id="new-mission">+ New mission</button>`;
+      (editMode ? `<button class="btn small primary" id="new-mission">+ New mission</button>` : "") +
+      (missions.length ? `<button class="btn small mode" id="mode" aria-pressed="${editMode}">${editMode ? "✓ Done editing" : "✏️ Edit"}</button>` : "");
     el.querySelectorAll(".chip").forEach((b) => (b.onclick = () => { selId = b.dataset.id; panel = null; editing = null; memoEditing = null; persist(); render(); }));
-    $("#new-mission").onclick = () => { panel = "new"; editing = null; render(); };
+    const nm = $("#new-mission"); if (nm) nm.onclick = () => { panel = "new"; editing = null; render(); };
+    const md = $("#mode"); if (md) md.onclick = () => setMode(!editMode);
   }
 
   function renderStart(first) {
@@ -123,11 +135,11 @@
       <div class="card"><div class="t"><span class="em" aria-hidden="true">${esc(em)}</span>${esc(b.title)}<span class="tag now" hidden>Now</span>${tags}</div>
         <div class="m num">${CATS[b.cat][0]}, ${esc(b.s)} to ${esc(b.e)}${nextDay ? " (next day)" : ""}</div>
         ${b.note ? `<div class="n">${esc(b.note)}</div>` : ""}
-        <div class="acts">${st("done")}${st("changed")}${st("skipped")}<button class="btn" data-act="edit" data-id="${esc(b.id)}">Edit</button></div></div></li>`;
+        ${editMode ? `<div class="acts">${st("done")}${st("changed")}${st("skipped")}<button class="btn" data-act="edit" data-id="${esc(b.id)}">Edit</button></div>` : ""}</div></li>`;
   }
 
   function renderTimeline(m) {
-    if (!m.blocks.length) return `<p class="muted" style="margin-top:18px">No blocks yet. Add the first one below: start with the hard deadline, then work backwards.</p>`;
+    if (!m.blocks.length) return `<p class="muted" style="margin-top:18px">${editMode ? "No blocks yet. Add the first one below: start with the hard deadline, then work backwards." : "No blocks yet. Switch to Edit to add the first one."}</p>`;
     const all = sorted(m);
     const days = [...new Set(all.map((b) => b.date))];
     return days.map((date) => {
@@ -142,7 +154,8 @@
       items.sort((a, b) => a.t - b.t || ord[a.k] - ord[b.k]);
       const nDl = mainList.filter((b) => b.dl).length;
       const memo = m.memos[date] || "";
-      const memoHTML = memoEditing === date
+      const memoHTML = !editMode ? (memo ? `<p class="memo">${esc(memo)}</p>` : "")
+        : memoEditing === date
         ? `<div class="memo-edit"><label class="field" for="memo-in">What happened on this day<textarea id="memo-in" maxlength="600">${esc(memo)}</textarea></label>
             <div class="row-actions"><button class="btn primary small" id="memo-save" data-date="${date}">Save note</button><button class="btn small" id="memo-cancel">Cancel</button></div></div>`
         : memo ? `<p class="memo">${esc(memo)}</p><button class="btn small" data-memo="${date}">Edit note</button>`
@@ -204,6 +217,7 @@
     if (ms) ms.onclick = () => { const v = $("#memo-in").value.trim(); if (v) m.memos[ms.dataset.date] = v; else delete m.memos[ms.dataset.date]; memoEditing = null; commit(m); };
     const mc = $("#memo-cancel"); if (mc) mc.onclick = () => { memoEditing = null; render(); };
 
+    if (!editMode) return;
     $("#ed-save").onclick = () => {
       const title = $("#ed-title").value.trim(), date = $("#ed-date").value, s = $("#ed-s").value, e = $("#ed-e").value;
       if (!title || !date || toMin(s) === null || toMin(e) === null) { setStatus("A block needs a title, a date, a start and an end.", true); return; }
@@ -250,7 +264,7 @@
       const k = st.tally;
       body = `<p class="lbl">Debrief</p><p class="nowtitle">${m.highlight ? esc(m.highlight) : "Mission over. How did it go?"}</p>
         <div class="debrief num"><div><b>${k.done}</b><span>Done</span></div><div><b>${k.changed}</b><span>Changed</span></div><div><b>${k.skipped}</b><span>Skipped</span></div><div><b>${k.unmarked}</b><span>Not marked yet</span></div></div>
-        <p class="muted" style="margin:0;font-size:14px">Mark each block below, write a note on each day, and add the highlight in the Mission section.</p>`;
+        ${editMode ? `<p class="muted" style="margin:0;font-size:14px">Mark each block below, write a note on each day, and add the highlight in the Mission section.</p>` : ""}`;
     } else {
       const c = st.current;
       if (c) {
