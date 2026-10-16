@@ -18,10 +18,10 @@ export async function apiGet(path) {
   return body;
 }
 
-/** Summaries of the published example missions. */
-export async function listExamples() {
+/** Summaries of every published mission. */
+export async function listPublished() {
   const { missions } = await apiGet("missions");
-  return missions.filter((m) => m.example);
+  return missions;
 }
 
 /** A published mission in the mission-timeline/v1 format. */

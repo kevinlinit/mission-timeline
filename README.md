@@ -91,7 +91,7 @@ Add a mission as `data/missions/<id>.json` (ids are lowercase letters, digits an
 
 ## Web app
 
-`web/` is a client of the API. Missions you make are kept in your browser (`localStorage`); published examples come from `/api/v1/missions.json`, and on a first visit the example trip is added automatically. It imports the shared core from `/core/`, so it needs to be served (by `npm start` or from the static export), not opened as a file.
+`web/` is a client of the API. Missions you make are kept in your browser (`localStorage`). Every mission published in `data/missions/` is added to the mission list the first time the app sees it (from `/api/v1/missions.json`); after that it's yours to mark and edit, and if you delete it, it isn't added back (it stays offered under **New mission**). The iOS app does the same. It imports the shared core from `/core/`, so it needs to be served (by `npm start` or from the static export), not opened as a file.
 
 ## Deploying
 

@@ -1,17 +1,19 @@
 /*
- * Mission Timeline web client. Missions are kept in this browser (localStorage); published examples
- * come from the Mission Timeline API. Time logic is the shared core the API uses.
+ * Mission Timeline web client. Missions are kept in this browser (localStorage). Every mission published
+ * by the Mission Timeline API is added to the list the first time the app sees it. Time logic is the shared core the API uses.
  */
 import {
   CATS, MO, TEMPLATES, WD, blockTimes, cleanBlock, cleanMission, countdown, dayLabel, dur, emojiOf, exportData,
   floatingNow, hhmm, importData, isoDate, pad, rid, sorted, liveState, timelineDays, toMin,
 } from "../core/index.js";
-import { listExamples, getMission } from "./api.js";
+import { listPublished, getMission } from "./api.js";
 
 {
   const KEY = "mission-timeline:v1";
   const SEL_KEY = "mission-timeline:selected";
   const MODE_KEY = "mission-timeline:mode";
+  /** Published mission ids this browser has already been offered, so a deleted one isn't added back. */
+  const SEEN_KEY = "mission-timeline:published-seen";
   /** "Now" on a mission's wall clock: in its time zone if it has one, otherwise this browser's. */
   const nowFor = (m) => floatingNow(Date.now(), m?.tz || "");
   const $ = (s) => document.querySelector(s);
@@ -19,11 +21,9 @@ import { listExamples, getMission } from "./api.js";
 
   // ---------- storage ----------
   let canSave = true;
-  let firstVisit = false;
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      firstVisit = raw === null;
       return raw ? JSON.parse(raw).map(cleanMission) : [];
     } catch (e) {
       canSave = false;
@@ -49,7 +49,7 @@ import { listExamples, getMission } from "./api.js";
   let editing = null; // {blockId}
   let memoEditing = null; // date
   let panel = null; // "new" | null
-  let examples = []; // summaries of published examples, from the API
+  let published = []; // summaries of every mission the API publishes
 
   function setStatus(t, err) { const el = $("#status"); el.textContent = t || ""; el.classList.toggle("err", !!err); }
   const current = () => missions.find((m) => m.id === selId) || null;
@@ -64,17 +64,33 @@ import { listExamples, getMission } from "./api.js";
     persist(); render(); setStatus("Mission created.");
     return m;
   }
-  async function addExample(id, { select = true } = {}) {
-    try {
-      const m = cleanMission(await getMission(id));
-      if (missions.some((x) => x.id === m.id)) return;
-      missions.push(m);
-      if (select || !selId) selId = m.id;
-      panel = null;
-      persist(); render(); setStatus("Example added.");
-    } catch (e) {
-      setStatus(e.message, true);
-    }
+  const readSeen = () => { try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); } catch { return new Set(); } };
+  const writeSeen = (set) => { try { localStorage.setItem(SEEN_KEY, JSON.stringify([...set])); } catch { /* not saved */ } };
+
+  /** Add published missions by id (skipping ones already here). Returns how many were added. */
+  async function addPublished(ids, { select = false } = {}) {
+    const fetched = await Promise.all(ids.map((id) => getMission(id).then(cleanMission).catch(() => null)));
+    const fresh = fetched.filter((m) => m && !missions.some((x) => x.id === m.id));
+    if (!fresh.length) return 0;
+    missions.push(...fresh);
+    if (select || !selId || !missions.some((x) => x.id === selId)) selId = fresh[0].id;
+    panel = null;
+    persist(); render();
+    return fresh.length;
+  }
+
+  /** Fetch the published list and add any mission this browser hasn't been offered before. */
+  async function syncPublished() {
+    published = await listPublished();
+    const seen = readSeen();
+    const isNew = published.filter((p) => !seen.has(p.id) && !missions.some((m) => m.id === p.id));
+    published.forEach((p) => seen.add(p.id));
+    writeSeen(seen);
+    if (!isNew.length) { render(); return; }
+    // Examples first, so a first visit opens on the example trip.
+    isNew.sort((a, b) => b.example - a.example);
+    const n = await addPublished(isNew.map((p) => p.id));
+    if (n) setStatus(`${n} published mission${n === 1 ? "" : "s"} added. Pick one above.`);
   }
   function removeMission(id) {
     missions = missions.filter((m) => m.id !== id);
@@ -121,7 +137,7 @@ import { listExamples, getMission } from "./api.js";
     return `<section class="empty">
       <h2>${first ? "No missions yet" : "Start a new mission"}</h2>
       <p class="muted" style="margin:0;max-width:60ch">${first ? "A mission is anything with a date and a goal: a hike, an interview, a training week, a date. " : ""}Start from a template or build it yourself.</p>
-      <div class="tpls">${examples.filter((x) => !missions.some((m) => m.id === x.id)).map((x) => `<button class="tpl" data-example="${esc(x.id)}"><b>${esc(x.emoji)} Example: ${esc(x.name)}</b><span>${esc(x.goal)}</span></button>`).join("")}${Object.entries(TEMPLATES).map(([k, t]) => `<button class="tpl" data-tpl="${k}"><b>${t.emoji} ${esc(t.label)}</b><span>${esc(t.blurb)}</span></button>`).join("")}</div>
+      <div class="tpls">${published.filter((x) => !missions.some((m) => m.id === x.id)).map((x) => `<button class="tpl" data-published="${esc(x.id)}"><b>${esc(x.emoji)} ${x.example ? "Example: " : ""}${esc(x.name)}</b><span>${esc(x.goal)}</span></button>`).join("")}${Object.entries(TEMPLATES).map(([k, t]) => `<button class="tpl" data-tpl="${k}"><b>${t.emoji} ${esc(t.label)}</b><span>${esc(t.blurb)}</span></button>`).join("")}</div>
       <div class="panel">
         <h2>Build it yourself</h2>
         <div class="grid">
@@ -135,7 +151,7 @@ import { listExamples, getMission } from "./api.js";
   }
   function bindStart() {
     document.querySelectorAll(".tpl[data-tpl]").forEach((b) => (b.onclick = () => createMission(TEMPLATES[b.dataset.tpl].build(floatingNow()))));
-    document.querySelectorAll(".tpl[data-example]").forEach((b) => (b.onclick = () => addExample(b.dataset.example)));
+    document.querySelectorAll(".tpl[data-published]").forEach((b) => (b.onclick = () => addPublished([b.dataset.published], { select: true }).then((n) => n && setStatus("Mission added."))));
     $("#nm-go").onclick = () => {
       const name = $("#nm-name").value.trim();
       if (!name) { $("#nm-name").focus(); setStatus("Give the mission a name.", true); return; }
@@ -325,11 +341,5 @@ import { listExamples, getMission } from "./api.js";
   if (!canSave) setStatus("This browser won't let the page save. Export your missions before you close it.", true);
   render();
   setInterval(tick, 1000);
-  listExamples()
-    .then((list) => {
-      examples = list;
-      if (firstVisit && !missions.length && list.length) return Promise.all(list.map((x, i) => addExample(x.id, { select: i === 0 })));
-      render();
-    })
-    .catch(() => {}); // offline or opened as a file: templates still work
+  syncPublished().catch(() => {}); // offline or opened as a file: your own missions and templates still work
 }
