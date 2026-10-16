@@ -149,3 +149,10 @@ label.btn{display:inline-block}
 [hidden]{display:none!important}
 .missions .mode{margin-left:auto}
 .mode[aria-pressed="true"]{background:var(--ok);border-color:var(--ok);color:#fff}
+
+/* scroll to now */
+.jump-now{margin-top:10px}
+.row.b{scroll-margin:96px 0}
+@keyframes flash{from{box-shadow:0 0 0 3px var(--do)}to{box-shadow:0 0 0 3px transparent}}
+.row.b.flash .card{animation:flash 1.6s ease-out 1;border-radius:8px}
+@media (prefers-reduced-motion:reduce){.row.b.flash .card{animation:none}}

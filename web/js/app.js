@@ -53,6 +53,7 @@ import { listPublished, getMission } from "./api.js";
 
   function setStatus(t, err) { const el = $("#status"); el.textContent = t || ""; el.classList.toggle("err", !!err); }
   const current = () => missions.find((m) => m.id === selId) || null;
+  let scrolledFor = null; // the mission the timeline was last scrolled to "now" for
   function commit(m) {
     const i = missions.findIndex((x) => x.id === m.id);
     if (i >= 0) missions[i] = m; else missions.push(m);
@@ -121,6 +122,11 @@ import { listPublished, getMission } from "./api.js";
       ${editMode ? renderEditor(m) + renderMissionSettings(m) : ""}`;
     bindMission(m);
     tick();
+    // Opening a mission (not every re-render) scrolls the timeline to what's happening now.
+    if (scrolledFor !== m.id) {
+      scrolledFor = m.id;
+      requestAnimationFrame(() => scrollToNow(m, "auto"));
+    }
   }
 
   function renderChips() {
@@ -167,7 +173,7 @@ import { listPublished, getMission } from "./api.js";
       (b.status ? `<span class="tag ${b.status}">${b.status[0].toUpperCase() + b.status.slice(1)}</span>` : "");
     const st = (s) => `<button class="btn" data-act="${s}" data-id="${esc(b.id)}" aria-pressed="${b.status === s}">${s === "done" ? "✓ Done" : s === "changed" ? "~ Changed" : "✕ Skipped"}</button>`;
     const nextDay = t1 > t0 && isoDate(t1) !== isoDate(t0);
-    return `<li class="row b${b.fixed ? "" : " est"}${b.status === "skipped" ? " skipped" : ""}" data-t0="${t0}" data-t1="${t1}" style="--c:var(--${b.cat})">
+    return `<li class="row b${b.fixed ? "" : " est"}${b.status === "skipped" ? " skipped" : ""}" data-id="${esc(b.id)}" data-t0="${t0}" data-t1="${t1}" style="--c:var(--${b.cat})">
       <div class="tm num">${esc(b.s)}<small>${dur(Math.round((t1 - t0) / 60000))}</small></div><div class="rail"><div class="seg"></div></div>
       <div class="card"><div class="t"><span class="em" aria-hidden="true">${esc(em)}</span>${esc(b.title)}<span class="tag now" hidden>Now</span>${tags}</div>
         <div class="m num">${CATS[b.cat][0]}, ${esc(b.s)} to ${esc(b.e)}${nextDay ? " (next day)" : ""}</div>
@@ -266,6 +272,24 @@ import { listPublished, getMission } from "./api.js";
     $("#ms-del2").onclick = () => removeMission(m.id);
   }
 
+  // ---------- scroll to now ----------
+  /** The block to show for "now": the current block, or the next one if nothing is running. Null before or after the mission. */
+  function nowBlock(m) {
+    const st = liveState(m, nowFor(m));
+    return st.phase === "during" ? st.current || st.next : null;
+  }
+
+  /** Scroll the timeline so the current (or next) block is in the middle of the screen. */
+  function scrollToNow(m, behavior = "smooth") {
+    const b = m && nowBlock(m);
+    const row = b && document.querySelector(`.row.b[data-id="${CSS.escape(b.id)}"]`);
+    if (!row) return false;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ block: "center", behavior: reduce ? "auto" : behavior });
+    row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
+    return true;
+  }
+
   // ---------- live panel ----------
   function tick() {
     const live = $("#live"); if (!live) return;
@@ -299,6 +323,7 @@ import { listPublished, getMission } from "./api.js";
       } else {
         body = `<p class="lbl">Now</p><p class="nowtitle">Free time</p><p class="muted" style="margin:0">Nothing planned until ${st.next ? esc(st.next.s) : "the end"}.</p>`;
       }
+      body += `<button class="btn small jump-now" type="button" data-jump-now>↓ Show in timeline</button>`;
       if (st.planB.length) body += `<p class="planb-now">🔀 Plan B running now: <b>${st.planB.map((b) => esc(b.title)).join(", ")}</b> (${esc(st.planB[0].branch)})</p>`;
       body += `<div class="nexts">${st.next ? card("Next up", st.next, false) : ""}${st.nextDeadline ? card("Next hard deadline", st.nextDeadline, true) : ""}</div>`;
     }
@@ -341,5 +366,7 @@ import { listPublished, getMission } from "./api.js";
   if (!canSave) setStatus("This browser won't let the page save. Export your missions before you close it.", true);
   render();
   setInterval(tick, 1000);
+  // The live panel is redrawn every second, so its button is handled here.
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-jump-now]")) scrollToNow(current()); });
   syncPublished().catch(() => {}); // offline or opened as a file: your own missions and templates still work
 }
