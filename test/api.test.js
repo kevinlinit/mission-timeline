@@ -10,7 +10,7 @@ const repo = Repository.fromDir(new URL("../data", import.meta.url).pathname);
 const get = (path, query = "", now) => handle(repo, { path, query: new URLSearchParams(query) }, now);
 
 test("the published data loads: the example trip and the iOS feed", () => {
-  assert.equal(repo.missions().length, 1);
+  assert.ok(repo.missions().length >= 1);
   assert.equal(repo.mission("example-japan-trip").tz, "Asia/Tokyo");
   assert.match(repo.updateFeed().version, /^\d+\.\d+\.\d+$/);
   assert.match(repo.revision, /^[0-9a-f]{12}$/);
@@ -26,7 +26,7 @@ test("index lists every endpoint", () => {
 
 test("missions list is summaries", () => {
   const { body } = get("/api/v1/missions.json");
-  const s = body.missions[0];
+  const s = body.missions.find((x) => x.id === "example-japan-trip");
   assert.equal(s.id, "example-japan-trip");
   assert.equal(s.start, "2026-09-26T19:40");
   assert.equal(s.blocks, 151);
@@ -112,15 +112,30 @@ test("errors are JSON with a code", () => {
 });
 
 test("static paths cover everything that doesn't depend on the clock", () => {
-  assert.deepEqual(staticPaths(repo), [
-    "/api/v1",
-    "/api/v1/missions",
-    "/api/v1/missions/example-japan-trip",
-    "/api/v1/missions/example-japan-trip/timeline",
-    "/api/v1/export",
-    "/api/v1/templates",
-    "/api/v1/ios/latest",
-  ]);
+  const paths = staticPaths(repo);
+  for (const p of ["/api/v1", "/api/v1/missions", "/api/v1/export", "/api/v1/templates", "/api/v1/ios/latest"]) assert.ok(paths.includes(p), p);
+  for (const m of repo.missions()) {
+    assert.ok(paths.includes(`/api/v1/missions/${m.id}`));
+    assert.ok(paths.includes(`/api/v1/missions/${m.id}/timeline`));
+  }
+  assert.ok(!paths.some((p) => p.endsWith("/live")));
+});
+
+test("every published mission has a hard deadline, and every plan a Plan B", () => {
+  for (const m of repo.missions()) {
+    assert.ok(m.blocks.length > 0, m.id);
+    assert.ok(m.blocks.some((b) => b.dl), `${m.id} has a deadline`);
+    // Examples are recorded as they happened; plans need a Plan B.
+    if (!m.example) assert.ok(m.blocks.some((b) => b.branch), `${m.id} has a Plan B`);
+  }
+});
+
+test("the Greater Bay Area trip: Friday evening in Shenzhen, China time", () => {
+  const { body } = get("/api/v1/missions/gba-trip-2026-10/live.json", "at=2026-10-16T19:43:00%2B08:00");
+  assert.equal(body.tz, "Asia/Shanghai");
+  assert.equal(body.phase, "during");
+  assert.equal(body.current.title, "Dinner: Chaoshan beef hotpot");
+  assert.equal(body.nextDeadline.title, "Through security at Futian");
 });
 
 test("bad data fails at load time with a clear message", () => {
