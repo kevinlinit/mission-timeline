@@ -1,6 +1,6 @@
 # Builds the static site and API (npm run build) and publishes dist/ to the gh-pages branch, and to
 # japan-trip-demo, the branch GitHub Pages currently deploys. Either branch can be the Pages source.
-# (The old demo is kept as the tag japan-trip-demo-archive.)
+# (The old demo is kept on the branch japan-trip-demo-archive.)
 name: publish
 on:
   push:

@@ -95,7 +95,7 @@ Add a mission as `data/missions/<id>.json` (ids are lowercase letters, digits an
 
 ## Deploying
 
-**GitHub Pages (static).** On every push to `main`, the `publish` workflow runs the tests, builds `dist/` and pushes it to the `gh-pages` branch. It also pushes the same build to `japan-trip-demo`, the branch Pages currently deploys, so the live site updates either way (the old demo is kept as the tag `japan-trip-demo-archive`). The site and the static API are then at `https://kevinlinit.github.io/mission-timeline/`, with the iOS feed staying at `/ios/latest.json`.
+**GitHub Pages (static).** On every push to `main`, the `publish` workflow runs the tests, builds `dist/` and pushes it to the `gh-pages` branch. It also pushes the same build to `japan-trip-demo`, the branch Pages currently deploys, so the live site updates either way (the old demo is kept on the branch `japan-trip-demo-archive`). The site and the static API are then at `https://kevinlinit.github.io/mission-timeline/`, with the iOS feed staying at `/ios/latest.json`.
 
 **Node server.** Any Node 20+ host (Render, Fly.io, Railway, a VPS): run `npm start` with `HOST=0.0.0.0` and `PORT` set by the host. No build step or install is needed.
 
