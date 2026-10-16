@@ -1,5 +1,6 @@
-# Builds the static site and API (npm run build) and publishes dist/ to the gh-pages branch.
-# To serve it: Settings → Pages → Deploy from a branch → gh-pages / (root).
+# Builds the static site and API (npm run build) and publishes dist/ to the gh-pages branch, and to
+# japan-trip-demo, the branch GitHub Pages currently deploys. Either branch can be the Pages source.
+# (The old demo is kept as the tag japan-trip-demo-archive.)
 name: publish
 on:
   push:
@@ -20,7 +21,7 @@ jobs:
           node-version: 22
       - run: npm test
       - run: npm run build
-      - name: Push dist/ to gh-pages
+      - name: Push dist/ to the Pages branches
         run: |
           cd dist
           git init -q -b gh-pages
@@ -28,4 +29,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -qm "Publish ${GITHUB_SHA::7}"
-          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" gh-pages
+          for branch in gh-pages japan-trip-demo; do
+            git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "gh-pages:$branch"
+          done
