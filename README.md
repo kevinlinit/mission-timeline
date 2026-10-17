@@ -93,6 +93,21 @@ Add a mission as `data/missions/<id>.json` (ids are lowercase letters, digits an
 
 `web/` is a client of the API. Missions you make are kept in your browser (`localStorage`). Every mission published in `data/missions/` is added to the mission list the first time the app sees it (from `/api/v1/missions.json`); after that it's yours to mark and edit, and if you delete it, it isn't added back (it stays offered under **New mission**). The iOS app does the same. It imports the shared core from `/core/`, so it needs to be served (by `npm start` or from the static export), not opened as a file.
 
+### Block details
+
+Tap a block to open its details: a side panel on wide screens, a bottom sheet on phones. Every sheet shows the time, how long until it starts or ends (or how far through it you are), the note, and arrows to the previous and next block. The rest depends on the kind of block, worked out by `blockDetails()` in `src/core/details.js`:
+
+| Kind | Shows | Main action |
+| --- | --- | --- |
+| Move | leave and arrive times, what's after | directions to the destination |
+| Do, Fuel | what's next and the slack before it | find the place in Maps |
+| Rest | wake-up time, first thing next | |
+| Admin, Prep | the note as a checklist you can tick | |
+| Hard deadline | big countdown, "no second chance", its Plan B | reminder 30 minutes before |
+| Plan B | when to use it, what it replaces | in Edit mode, switch to it (marks the replaced blocks changed) |
+
+The place is guessed from the title ("Metro to Futian" → Futian, "Dinner: Chaoshan beef hotpot" → Chaoshan beef hotpot, generic titles like "Lunch" → none). Reminders download as a calendar event (`.ics`) with an alert. In Edit mode the sheet also has Done, Changed, Skipped and Edit.
+
 ## Deploying
 
 **GitHub Pages (static).** On every push to `main`, the `publish` workflow runs the tests, builds `dist/` and pushes it to the `gh-pages` branch. It also pushes the same build to `japan-trip-demo`, the branch Pages currently deploys, so the live site updates either way (the old demo is kept on the branch `japan-trip-demo-archive`). The site and the static API are then at `https://kevinlinit.github.io/mission-timeline/`, with the iOS feed staying at `/ios/latest.json`.

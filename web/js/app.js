@@ -7,6 +7,7 @@ import {
   floatingNow, hhmm, importData, isoDate, pad, rid, sorted, liveState, timelineDays, toMin,
 } from "../core/index.js";
 import { listPublished, getMission } from "./api.js";
+import { createSheet } from "./sheet.js";
 
 {
   const KEY = "mission-timeline:v1";
@@ -134,7 +135,7 @@ import { listPublished, getMission } from "./api.js";
     el.innerHTML = missions.map((m) => `<button class="chip" data-id="${esc(m.id)}" aria-pressed="${m.id === selId && !panel}">${esc(m.emoji)} ${esc(m.name)}</button>`).join("") +
       (editMode ? `<button class="btn small primary" id="new-mission">+ New mission</button>` : "") +
       (missions.length ? `<button class="btn small mode" id="mode" aria-pressed="${editMode}">${editMode ? "✓ Done editing" : "✏️ Edit"}</button>` : "");
-    el.querySelectorAll(".chip").forEach((b) => (b.onclick = () => { selId = b.dataset.id; panel = null; editing = null; memoEditing = null; persist(); render(); }));
+    el.querySelectorAll(".chip").forEach((b) => (b.onclick = () => { sheet.close(); selId = b.dataset.id; panel = null; editing = null; memoEditing = null; persist(); render(); }));
     const nm = $("#new-mission"); if (nm) nm.onclick = () => { panel = "new"; editing = null; render(); };
     const md = $("#mode"); if (md) md.onclick = () => setMode(!editMode);
   }
@@ -175,7 +176,7 @@ import { listPublished, getMission } from "./api.js";
     const nextDay = t1 > t0 && isoDate(t1) !== isoDate(t0);
     return `<li class="row b${b.fixed ? "" : " est"}${b.status === "skipped" ? " skipped" : ""}" data-id="${esc(b.id)}" data-t0="${t0}" data-t1="${t1}" style="--c:var(--${b.cat})">
       <div class="tm num">${esc(b.s)}<small>${dur(Math.round((t1 - t0) / 60000))}</small></div><div class="rail"><div class="seg"></div></div>
-      <div class="card"><div class="t"><span class="em" aria-hidden="true">${esc(em)}</span>${esc(b.title)}<span class="tag now" hidden>Now</span>${tags}</div>
+      <div class="card"><div class="t"><span class="em" aria-hidden="true">${esc(em)}</span><button type="button" class="open" data-open="${esc(b.id)}" aria-haspopup="dialog">${esc(b.title)}</button><span class="tag now" hidden>Now</span>${tags}</div>
         <div class="m num">${CATS[b.cat][0]}, ${esc(b.s)} to ${esc(b.e)}${nextDay ? " (next day)" : ""}</div>
         ${b.note ? `<div class="n">${esc(b.note)}</div>` : ""}
         ${editMode ? `<div class="acts">${st("done")}${st("changed")}${st("skipped")}<button class="btn" data-act="edit" data-id="${esc(b.id)}">Edit</button></div>` : ""}</div></li>`;
@@ -193,7 +194,7 @@ import { listPublished, getMission } from "./api.js";
       return `<section class="day"><div class="dayhead"><h3>${esc(label)}</h3><small>${nMain} block${nMain === 1 ? "" : "s"}${nDl ? `, <span style="color:var(--hard)">${nDl} deadline${nDl > 1 ? "s" : ""}</span>` : ""}</small></div>
         ${memoHTML}
         <ol class="rows">${items.map((it) => it.type === "deadline"
-          ? `<li class="row dl" data-t="${blockTimes(it.block)[0]}"><div class="tm num">${esc(it.block.s)}</div><div class="rail"><span></span></div><div class="card">${esc(it.block.title)}</div></li>`
+          ? `<li class="row dl" data-id="${esc(it.block.id)}" data-t="${blockTimes(it.block)[0]}"><div class="tm num">${esc(it.block.s)}</div><div class="rail"><span></span></div><div class="card"><button type="button" class="open" data-open="${esc(it.block.id)}" aria-haspopup="dialog">${esc(it.block.title)}</button></div></li>`
           : it.type === "planB" ? `<li class="branchgrp"><div class="bh">🔀 Plan B · ${esc(it.label)}</div><ol>${it.blocks.map(rowHTML).join("")}</ol></li>`
           : rowHTML(it.block)).join("")}</ol></section>`;
     }).join("");
@@ -328,6 +329,7 @@ import { listPublished, getMission } from "./api.js";
       body += `<div class="nexts">${st.next ? card("Next up", st.next, false) : ""}${st.nextDeadline ? card("Next hard deadline", st.nextDeadline, true) : ""}</div>`;
     }
     live.innerHTML = head + body;
+    sheet.refresh(true);
     document.querySelectorAll(".row.b").forEach((r) => {
       const a = +r.dataset.t0, z = +r.dataset.t1, on = a <= t && t < z;
       r.classList.toggle("cur", on); r.classList.toggle("past", z <= t);
@@ -362,11 +364,32 @@ import { listPublished, getMission } from "./api.js";
     }
   };
 
+  // ---------- block details ----------
+  // Tap a block (anywhere on its row except its own buttons) to open its details.
+  const sheet = createSheet({
+    mission: current,
+    now: nowFor,
+    editMode: () => editMode,
+    onStatus: (m, id, st) => { const b = m.blocks.find((x) => x.id === id); if (b) { b.status = b.status === st ? "" : st; commit(m); } },
+    onEdit: (id) => { editing = { blockId: id }; render(); $("#editor")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
+    onSwitchPlanB: (m, d) => {
+      d.replaces.forEach((r) => { const b = m.blocks.find((x) => x.id === r.id); if (b) b.status = "changed"; });
+      commit(m);
+      setStatus(`Switched to Plan B: ${d.block.title}.`);
+    },
+  });
+  document.getElementById("main").addEventListener("click", (e) => {
+    const row = e.target.closest(".row.b, .row.dl");
+    if (!row || (e.target.closest("button, a, input, textarea, select") && !e.target.closest("[data-open]"))) return;
+    sheet.open(row.dataset.id);
+  });
+
   // ---------- boot ----------
   if (!canSave) setStatus("This browser won't let the page save. Export your missions before you close it.", true);
   render();
   setInterval(tick, 1000);
   // The live panel is redrawn every second, so its button is handled here.
   document.addEventListener("click", (e) => { if (e.target.closest("[data-jump-now]")) scrollToNow(current()); });
+
   syncPublished().catch(() => {}); // offline or opened as a file: your own missions and templates still work
 }
