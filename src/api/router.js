@@ -2,6 +2,7 @@ import {
   FORMAT, TEMPLATES, blockTimes, cleanMission, countdown, describeBlock, floatingNow, isDate, isTimeZone,
   liveState, summarize, timelineDays, at as atDate,
 } from "../core/index.js";
+import { ACCOUNT_ENDPOINTS } from "./account-routes.js";
 
 /**
  * The HTTP API, as pure functions: request in, { status, body, cache } out. No sockets here, so the
@@ -51,7 +52,7 @@ export function handle(repo, { method = "GET", path, query = new URLSearchParams
     if (!route) throw new HttpError(404, "not_found", `No such endpoint: ${path}. See ${BASE}.json for the list.`);
     if (method === "OPTIONS") return { status: 204, body: null, cache: "none" };
     if (method !== "GET" && method !== "HEAD") {
-      return { status: 405, body: error("method_not_allowed", "This API is read-only: use GET."), cache: "none", allow: "GET, HEAD, OPTIONS" };
+      return { status: 405, body: error("method_not_allowed", "Published data is read-only: use GET. Your own missions are under /api/v1/me/missions."), cache: "none", allow: "GET, HEAD, OPTIONS" };
     }
     const params = route.regex.exec(path).groups || {};
     const ctx = { repo, query, now, params };
@@ -86,7 +87,8 @@ function index({ repo }) {
     format: FORMAT,
     revision: repo.revision,
     missions: repo.missions().length,
-    endpoints: routes.map((r) => ({ path: `${BASE}${r.path}.json`.replace("/.json", ".json"), description: r.doc, static: r.static })),
+    endpoints: routes.map((r) => ({ method: "GET", path: `${BASE}${r.path}.json`.replace("/.json", ".json"), description: r.doc, static: r.static }))
+      .concat(ACCOUNT_ENDPOINTS.map((e) => ({ ...e, static: false, signIn: true }))),
   };
 }
 

@@ -8,6 +8,7 @@ import {
 } from "../core/index.js";
 import { listPublished, getMission } from "./api.js";
 import { createSheet } from "./sheet.js";
+import { createAccount } from "./account.js";
 
 {
   const KEY = "mission-timeline:v1";
@@ -15,6 +16,10 @@ import { createSheet } from "./sheet.js";
   const MODE_KEY = "mission-timeline:mode";
   /** Published mission ids this browser has already been offered, so a deleted one isn't added back. */
   const SEEN_KEY = "mission-timeline:published-seen";
+  /** Deleted mission ids and when, so sync doesn't bring them back from another device. */
+  const TOMB_KEY = "mission-timeline:tombstones";
+  const readTombs = () => { try { return JSON.parse(localStorage.getItem(TOMB_KEY) || "{}"); } catch { return {}; } };
+  const writeTombs = (t) => { try { localStorage.setItem(TOMB_KEY, JSON.stringify(t)); } catch { /* not saved */ } };
   /** "Now" on a mission's wall clock: in its time zone if it has one, otherwise this browser's. */
   const nowFor = (m) => floatingNow(Date.now(), m?.tz || "");
   const $ = (s) => document.querySelector(s);
@@ -56,14 +61,15 @@ import { createSheet } from "./sheet.js";
   const current = () => missions.find((m) => m.id === selId) || null;
   let scrolledFor = null; // the mission the timeline was last scrolled to "now" for
   function commit(m) {
+    m.updatedAt = Date.now();
     const i = missions.findIndex((x) => x.id === m.id);
     if (i >= 0) missions[i] = m; else missions.push(m);
-    persist(); render();
+    persist(); render(); account.schedule();
   }
   function createMission(data) {
-    const m = cleanMission({ ...data, id: rid(), createdAt: Date.now() });
+    const m = cleanMission({ ...data, id: rid(), createdAt: Date.now(), updatedAt: Date.now() });
     missions.push(m); selId = m.id; panel = null; editMode = true;
-    persist(); render(); setStatus("Mission created.");
+    persist(); render(); setStatus("Mission created."); account.schedule();
     return m;
   }
   const readSeen = () => { try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); } catch { return new Set(); } };
@@ -77,7 +83,7 @@ import { createSheet } from "./sheet.js";
     missions.push(...fresh);
     if (select || !selId || !missions.some((x) => x.id === selId)) selId = fresh[0].id;
     panel = null;
-    persist(); render();
+    persist(); render(); account.schedule();
     return fresh.length;
   }
 
@@ -96,9 +102,48 @@ import { createSheet } from "./sheet.js";
   }
   function removeMission(id) {
     missions = missions.filter((m) => m.id !== id);
+    writeTombs({ ...readTombs(), [id]: Date.now() });
     if (selId === id) selId = missions[0]?.id || null;
-    persist(); render(); setStatus("Mission deleted.");
+    persist(); render(); setStatus("Mission deleted."); account.schedule();
   }
+
+  // ---------- account: sign in with Google, sync ----------
+  const account = createAccount({
+    local: {
+      get: () => ({ missions, tombstones: readTombs() }),
+      set: (list, tombstones) => {
+        writeTombs(tombstones);
+        if (JSON.stringify(list) === JSON.stringify(missions)) return;
+        missions = list;
+        if (!missions.some((m) => m.id === selId)) selId = missions[0]?.id || null;
+        persist(); render();
+      },
+    },
+    onChange: renderAccount,
+  });
+
+  function renderAccount(st) {
+    const el = $("#account");
+    if (!st.available) { el.hidden = true; return; }
+    el.hidden = false;
+    if (!st.account) {
+      if (!el.querySelector("#gsi-btn")) {
+        el.innerHTML = `<div id="gsi-btn"></div><span class="muted">Sign in to keep your missions in sync on every device.</span>`;
+        account.renderButton($("#gsi-btn")).catch((e) => setStatus(e.message, true));
+      }
+      if (st.error) setStatus(st.error, true);
+      return;
+    }
+    const a = st.account;
+    const when = st.syncing ? "Syncing…" : st.error ? st.error : st.lastSynced ? `Synced ${ago(st.lastSynced)}` : "Not synced yet";
+    el.innerHTML = `${a.picture ? `<img src="${esc(a.picture)}" alt="" width="28" height="28" referrerpolicy="no-referrer">` : ""}
+      <span><b>${esc(a.name || a.email)}</b> <span class="muted">${esc(a.email)}</span><br><small class="${st.error ? "err" : "muted"}">${esc(when)}</small></span>
+      <button class="btn small" id="sync-now" type="button"${st.syncing ? " disabled" : ""}>Sync now</button>
+      <button class="btn small" id="sign-out" type="button">Sign out</button>`;
+    $("#sync-now").onclick = () => account.syncNow();
+    $("#sign-out").onclick = () => { account.signOut(); setStatus("Signed out. Your missions stay in this browser."); };
+  }
+  const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
 
   // ---------- render ----------
   function setMode(on) {
@@ -355,7 +400,8 @@ import { createSheet } from "./sheet.js";
       const incoming = importData(await file.text());
       const ids = new Set(missions.map((m) => m.id));
       let added = 0, updated = 0;
-      incoming.forEach((m) => { if (ids.has(m.id)) { missions[missions.findIndex((x) => x.id === m.id)] = m; updated++; } else { missions.push(m); added++; } });
+      incoming.forEach((m) => { m.updatedAt = Date.now(); if (ids.has(m.id)) { missions[missions.findIndex((x) => x.id === m.id)] = m; updated++; } else { missions.push(m); added++; } });
+      account.schedule();
       if (!selId && missions.length) selId = missions[0].id;
       panel = null; persist(); render();
       setStatus(`Imported ${added} new mission${added === 1 ? "" : "s"}${updated ? ` and updated ${updated}` : ""}.`);
@@ -392,4 +438,5 @@ import { createSheet } from "./sheet.js";
   document.addEventListener("click", (e) => { if (e.target.closest("[data-jump-now]")) scrollToNow(current()); });
 
   syncPublished().catch(() => {}); // offline or opened as a file: your own missions and templates still work
+  account.init();
 }

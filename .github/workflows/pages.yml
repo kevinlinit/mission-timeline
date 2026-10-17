@@ -21,6 +21,9 @@ jobs:
           node-version: 22
       - run: npm test
       - run: npm run build
+        env:
+          # Set in Settings → Secrets and variables → Actions → Variables once the server is running.
+          PUBLIC_SERVER_URL: ${{ vars.PUBLIC_SERVER_URL }}
       - name: Push dist/ to the Pages branches
         run: |
           cd dist

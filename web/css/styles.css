@@ -204,3 +204,10 @@ body.sheet-open{overflow:hidden}
   .sheet-grip{display:block;width:40px;height:5px;border-radius:3px;background:var(--rule);margin:0 auto 12px}
 }
 @media (prefers-reduced-motion:reduce){.sheet-panel,.sheet-backdrop{animation:none}}
+/* account */
+.account{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:0 0 18px;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--paper-2);font-size:14px}
+.account[hidden]{display:none}
+.account img{border-radius:50%}
+.account small{font-size:12px}
+.account small.err,.account .err{color:var(--hard)}
+.account #gsi-btn{min-height:32px}
