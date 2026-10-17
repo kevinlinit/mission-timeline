@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mission Timeline</title>
+<meta name="description" content="Plan any mission as a live timeline: timed blocks, hard deadlines, Plan B branches, a now-and-next panel and a debrief.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Old+Mincho:wght@600;900&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AF%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>Mission Timeline</h1>
+  <p class="sub">Plan the mission in blocks, mark the hard deadlines, keep a Plan B, follow it live, then write down what actually happened.</p>
+  <div class="account" id="account" hidden aria-live="polite"></div>
+
+  <ul class="method" aria-label="The method">
+    <li style="--c:var(--prep)"><b>1. Blocks</b>Break the mission into timed blocks: prep, do, move, rest, fuel, admin.</li>
+    <li style="--c:var(--ink-2)"><b>2. Fixed or estimated</b>Solid for times that can't move, dashed for your best guess.</li>
+    <li style="--c:var(--hard)"><b>3. Hard deadlines</b>The few moments with no second chance, in red.</li>
+    <li style="--c:var(--do)"><b>4. Plan B</b>A branch for rain, delays or nerves, decided in advance.</li>
+    <li style="--c:var(--ok)"><b>5. Debrief</b>Mark each block done, changed or skipped, and note what happened.</li>
+  </ul>
+
+  <p class="status-line" id="status" role="status"></p>
+  <div class="missions" id="missions" role="toolbar" aria-label="Missions"></div>
+  <div id="main"></div>
+
+  <footer class="foot">
+    <p>Your missions are saved in this browser, and in your account if you sign in. Use <b>Export</b> to back them up or move them to another device; switch to <b>Edit</b> to import.</p>
+    <div class="row-actions">
+      <button class="btn small" id="export">Export missions</button>
+      <label class="btn small" for="import" id="import-btn">Import missions</label>
+      <input type="file" id="import" accept="application/json,.json" hidden>
+    </div>
+  </footer>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
