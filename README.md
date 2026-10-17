@@ -73,6 +73,44 @@ curl 'http://127.0.0.1:8080/api/v1/missions/example-japan-trip/live.json?at=2026
 
 Block times are wall-clock times: "09:00 on 2026-10-02" in whatever time zone the mission happens in. The core computes in *floating time* (milliseconds as if that wall clock were UTC), so results are the same on any machine, and a night across a DST change is still eight hours. A mission can name its zone in `tz` (an IANA name such as `Asia/Tokyo`); the live endpoint uses it, and so does the web app's live panel, so the example trip shows Japan time wherever you open it. Missions without `tz` follow the viewer's clock in the apps and UTC on the server.
 
+## Sign in with Google and sync
+
+Signing in keeps your own missions on the server, so the web app and the iPhone app share them. Published missions (`data/missions`) stay public and need no account.
+
+- **Sign-in**: the app gets a Google ID token (Google's button on the web, Google's sign-in page in Apple's secure sheet on iOS). The server checks its signature against Google's public keys, its audience (your client IDs), issuer and expiry (`src/auth/google.js`, no dependencies), then issues its own session token: signed with `SESSION_SECRET`, valid 30 days, sent as `Authorization: Bearer …` (`src/auth/session.js`).
+- **Sync**: `GET /api/v1/me/missions` and `PUT /api/v1/me/missions` with the revision you based your changes on. If another device saved first you get `409` with the current state; the app merges and saves again. Merging (`mergeMissions` in `src/core/sync.js`): newest edit of each mission wins (`updatedAt`), deletions are remembered for 180 days so they don't come back.
+- **Sign out** on a device just forgets its token; `POST /api/v1/auth/signout` signs out every device.
+- **Storage**: accounts and their missions are JSON files in `STATE_DIR` (default `./var`), written atomically, one write at a time per file. Good for one server; swap `src/auth/accounts.js` for a database to scale out.
+
+Sign-in is off until it's configured; the apps then hide it and everything else works as before.
+
+### Set it up
+
+**1. Google Cloud: OAuth client IDs** ([console.cloud.google.com](https://console.cloud.google.com/))
+
+1. Create a project, then **APIs & Services → OAuth consent screen**: External, app name "Mission Timeline", your support email, scopes `openid`, `email`, `profile`. While it's in testing, add your Google account under **Test users**.
+2. **Credentials → Create credentials → OAuth client ID → Web application.** Under **Authorized JavaScript origins** add `https://kevinlinit.github.io`, your server's URL, and `http://localhost:8080` for local testing. Copy the **client ID**.
+3. **Create credentials → OAuth client ID → iOS.** Bundle ID `com.kevinlinit.missiontimeline`. Copy the **client ID** (and note its "iOS URL scheme", the reversed ID, for the iOS app).
+
+**2. Run the server somewhere** (Render, Fly.io, Railway or a VPS: any Node 20+ host)
+
+Start command `npm start` (no install or build step). Environment:
+
+| Variable | Value |
+| --- | --- |
+| `HOST` | `0.0.0.0` |
+| `GOOGLE_WEB_CLIENT_ID` | the web client ID |
+| `GOOGLE_IOS_CLIENT_ID` | the iOS client ID |
+| `SESSION_SECRET` | 32+ random characters: `openssl rand -base64 48` |
+| `STATE_DIR` | a folder on a persistent disk (e.g. Render disk at `/var/data`), or accounts are lost on redeploy |
+
+Check it: `https://<server>/api/v1/auth/config.json` should say `"enabled": true`.
+
+**3. Point the apps at it**
+
+- **Web on GitHub Pages**: repo **Settings → Secrets and variables → Actions → Variables → New variable** `PUBLIC_SERVER_URL` = the server's URL. The next publish writes it into `js/config.js`. (The web app served by the server itself needs nothing.)
+- **iOS**: see the iOS repo's README ("Sign in with Google").
+
 ## The data format
 
 `mission-timeline/v1`, shared by the API, the web app and the iOS app:
@@ -101,6 +139,5 @@ Add a mission as `data/missions/<id>.json` (ids are lowercase letters, digits an
 
 ## Next steps
 
-- Writes: `POST`/`PUT` missions with accounts, so the web and iOS apps sync through the API.
 - Push updates for the iOS Live Activity (APNs) from the server.
 - An OpenAPI description generated from the route table in `src/api/router.js`.

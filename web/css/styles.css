@@ -156,3 +156,11 @@ label.btn{display:inline-block}
 @keyframes flash{from{box-shadow:0 0 0 3px var(--do)}to{box-shadow:0 0 0 3px transparent}}
 .row.b.flash .card{animation:flash 1.6s ease-out 1;border-radius:8px}
 @media (prefers-reduced-motion:reduce){.row.b.flash .card{animation:none}}
+
+/* account */
+.account{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:0 0 18px;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--paper-2);font-size:14px}
+.account[hidden]{display:none}
+.account img{border-radius:50%}
+.account small{font-size:12px}
+.account small.err,.account .err{color:var(--hard)}
+.account #gsi-btn{min-height:32px}

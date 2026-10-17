@@ -25,3 +25,12 @@ test("the static export has the web app, the core and every static route", async
   }
   assert.deepEqual(JSON.parse(readFileSync(join(out, "ios/latest.json"), "utf8")), repo.updateFeed());
 });
+
+test("the export points sign-in at PUBLIC_SERVER_URL when set", async () => {
+  const out = mkdtempSync(join(tmpdir(), "mt-dist-"));
+  await build({ out, serverUrl: "https://mission-timeline.example.com" });
+  assert.match(readFileSync(join(out, "js/config.js"), "utf8"), /SERVER_URL = "https:\/\/mission-timeline\.example\.com"/);
+  const plain = mkdtempSync(join(tmpdir(), "mt-dist-"));
+  await build({ out: plain, serverUrl: "" });
+  assert.match(readFileSync(join(plain, "js/config.js"), "utf8"), /SERVER_URL = ""/);
+});

@@ -2,6 +2,11 @@
  * Mission Timeline server: the JSON API under /api/v1 plus the web app, with no dependencies.
  *
  *   npm start                     PORT=8080 HOST=0.0.0.0 DATA_DIR=./data
+ *
+ * Sign-in with Google and per-account mission sync turn on when these are set:
+ *   GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID   OAuth client IDs (either or both)
+ *   SESSION_SECRET                               32+ random characters, signs session tokens
+ *   STATE_DIR                                    where accounts and their missions are kept (default ./var)
  */
 import { createServer as createHttpServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -11,6 +16,10 @@ import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Repository } from "./api/repository.js";
 import { handle } from "./api/router.js";
+import { accountConfigFromEnv, createAccountApi, isAccountPath } from "./api/account-routes.js";
+import { AccountStore } from "./auth/accounts.js";
+import { createSessions } from "./auth/session.js";
+import { googleKeys, verifyGoogleIdToken } from "./auth/google.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -36,14 +45,40 @@ const CACHE = {
   none: "no-store",
 };
 
-export function createServer({ dataDir = join(ROOT, "data"), repo = Repository.fromDir(dataDir), now = () => Date.now(), log = () => {} } = {}) {
+const MAX_BODY = 2 * 1024 * 1024;
+
+/** The account API from settings; with sign-in off, it still answers /auth/config and explains the rest. */
+export function accountApiFromConfig(config, { fetch: fetchFn, now = () => Date.now() } = {}) {
+  if (!config.enabled) return createAccountApi({ config });
+  const keyFor = googleKeys({ fetch: fetchFn, now });
+  return createAccountApi({
+    config,
+    accounts: new AccountStore(config.stateDir || join(ROOT, "var"), { now }),
+    sessions: createSessions(config.secret, { now }),
+    verifyGoogle: (t) => verifyGoogleIdToken(t, { clientIds: config.clientIds, keyFor, now }),
+  });
+}
+
+export function createServer({
+  dataDir = join(ROOT, "data"), repo = Repository.fromDir(dataDir), now = () => Date.now(), log = () => {},
+  accountApi = accountApiFromConfig(accountConfigFromEnv()),
+} = {}) {
   const server = createHttpServer(async (req, res) => {
     const started = Date.now();
     try {
       const url = new URL(req.url, "http://localhost");
       // The iOS app's update feed lives at /ios/latest.json on the public site.
       const path = url.pathname === "/ios/latest.json" ? "/api/v1/ios/latest.json" : url.pathname;
-      if (path === "/api" || path.startsWith("/api/")) {
+      if (isAccountPath(path)) {
+        let body;
+        if (req.method === "POST" || req.method === "PUT") {
+          try { body = await readJsonBody(req); } catch (e) {
+            return sendJson(req, res, { status: e.status || 400, body: { error: { code: e.code || "bad_json", message: e.message } }, cache: "none" });
+          }
+        }
+        const r = await accountApi.handle({ method: req.method, path, query: url.searchParams, headers: req.headers, body });
+        sendJson(req, res, r, url.searchParams.has("pretty"));
+      } else if (path === "/api" || path.startsWith("/api/")) {
         const r = handle(repo, { method: req.method, path, query: url.searchParams }, now());
         sendJson(req, res, r, url.searchParams.has("pretty"));
       } else {
@@ -60,10 +95,25 @@ export function createServer({ dataDir = join(ROOT, "data"), repo = Repository.f
   return server;
 }
 
+/** The request body as JSON, at most 2 MB. */
+async function readJsonBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > MAX_BODY) throw Object.assign(new Error("The request is too large (2 MB at most)."), { status: 413, code: "too_large" });
+    chunks.push(c);
+  }
+  if (!size) return {};
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new Error("The request body isn't valid JSON."); }
+}
+
+// Bearer tokens, not cookies, so allowing any origin is safe: a page can only act for you with your token.
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "If-None-Match, Accept");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "If-None-Match, Accept, Authorization, Content-Type");
+  res.setHeader("Access-Control-Max-Age", "600");
   res.setHeader("Access-Control-Expose-Headers", "ETag");
 }
 
@@ -118,6 +168,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const host = process.env.HOST || "127.0.0.1";
   const server = createServer({ dataDir: process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : undefined, log: (l) => console.log(l) });
   server.listen(port, host, () => {
+    const auth = accountConfigFromEnv();
     console.log(`Mission Timeline on http://${host}:${port}  (API: /api/v1.json, ${server.repo.missions().length} missions, data revision ${server.repo.revision})`);
+    console.log(auth.enabled ? `Sign-in with Google is on (accounts in ${auth.stateDir || "./var"}).` : "Sign-in is off: set GOOGLE_WEB_CLIENT_ID and SESSION_SECRET to turn it on.");
   });
 }

@@ -5,6 +5,7 @@
  *   dist/core/                     the shared core it imports
  *   dist/api/v1.json, api/v1/...   every static API route, as .json files
  *   dist/ios/latest.json           the iOS update feed at the URL the app already uses
+ *   dist/js/config.js              SERVER_URL from PUBLIC_SERVER_URL, for sign-in and sync
  *
  * Routes that depend on the current time (live state, building a template) need the Node server.
  *
@@ -18,13 +19,15 @@ import { handle, staticPaths } from "../src/api/router.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-export async function build({ out = join(ROOT, "dist"), dataDir = join(ROOT, "data") } = {}) {
+export async function build({ out = join(ROOT, "dist"), dataDir = join(ROOT, "data"), serverUrl = process.env.PUBLIC_SERVER_URL || "" } = {}) {
   const repo = Repository.fromDir(dataDir);
   await rm(out, { recursive: true, force: true });
   await mkdir(out, { recursive: true });
   await cp(join(ROOT, "web"), out, { recursive: true });
   await cp(join(ROOT, "src", "core"), join(out, "core"), { recursive: true });
   await writeFile(join(out, ".nojekyll"), "");
+  // Pages can't run the server, so sign-in and sync go to the one at PUBLIC_SERVER_URL, if set.
+  if (serverUrl) await writeFile(join(out, "js", "config.js"), `export const SERVER_URL = ${JSON.stringify(serverUrl)};\n`);
 
   const written = [];
   const write = async (rel, body) => {

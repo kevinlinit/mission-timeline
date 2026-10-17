@@ -64,7 +64,7 @@ test("errors, methods and preflight", async () => {
   assert.equal(post.headers.allow, "GET, HEAD, OPTIONS");
   const pre = await raw("/api/v1/missions.json", { method: "OPTIONS" });
   assert.equal(pre.status, 204);
-  assert.equal(pre.headers["access-control-allow-methods"], "GET, HEAD, OPTIONS");
+  assert.equal(pre.headers["access-control-allow-methods"], "GET, HEAD, POST, PUT, OPTIONS");
 });
 
 test("HEAD has headers but no body", async () => {

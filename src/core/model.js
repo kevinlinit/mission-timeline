@@ -1,7 +1,7 @@
 /**
  * The mission-timeline/v1 data model, shared by the API, the web app and (as a Swift port) the iOS app.
  *
- * Mission: {id, name, emoji, goal, highlight, createdAt, example, tz, blocks: Block[], memos: {"YYYY-MM-DD": text}}
+ * Mission: {id, name, emoji, goal, highlight, createdAt, updatedAt, example, tz, blocks: Block[], memos: {"YYYY-MM-DD": text}}
  * Block:   {id, date, s, e, cat, title, note, em, fixed, opt, dl, branch, status}
  *
  * `tz` (optional, IANA name) is the time zone the mission's wall-clock times are in. Clients that don't
@@ -49,6 +49,8 @@ export function cleanMission(m) {
     goal: String(m.goal || "").slice(0, 300),
     highlight: String(m.highlight || "").slice(0, 400),
     createdAt: Number(m.createdAt) || Date.now(),
+    // When the mission was last changed (ms); sync keeps the newer copy. Older files fall back to createdAt.
+    updatedAt: Number(m.updatedAt) || Number(m.createdAt) || Date.now(),
     example: !!m.example,
     tz: isTimeZone(m.tz) ? m.tz : "",
     blocks: Array.isArray(m.blocks) ? m.blocks.map((b) => cleanBlock(b)) : [],
