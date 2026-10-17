@@ -145,3 +145,63 @@ test("import rejects files without missions", () => {
   assert.throws(() => MT.importData('{"hello": 1}'), /doesn't contain any missions/);
   assert.throws(() => MT.importData("not json"), /isn't valid JSON/);
 });
+
+test("placeOf guesses where a block happens from its title", () => {
+  const p = (cat, title) => MT.placeOf({ cat, title });
+  assert.deepEqual(p("move", "High-speed rail: Guangzhou South → Shenzhen North"), { query: "Shenzhen North", directions: true });
+  assert.deepEqual(p("move", "Metro to Futian, drop bags at the hotel"), { query: "Futian", directions: true });
+  assert.deepEqual(p("move", "Subway to 博多"), { query: "博多", directions: true });
+  assert.deepEqual(p("move", "Cross at Futian Checkpoint instead"), { query: "Futian Checkpoint", directions: true });
+  assert.deepEqual(p("fuel", "Dinner: Chaoshan beef hotpot"), { query: "Chaoshan beef hotpot", directions: false });
+  assert.deepEqual(p("fuel", "Lunch near Huaqiangbei"), { query: "Huaqiangbei", directions: false });
+  assert.deepEqual(p("do", "Onsen at 萬力屋"), { query: "萬力屋", directions: false });
+  assert.deepEqual(p("do", "Climb to Lantau Peak"), { query: "Lantau Peak", directions: false });
+  assert.deepEqual(p("do", "Shenzhen Bay Park at sunset"), { query: "Shenzhen Bay Park", directions: false });
+  for (const [cat, title] of [["move", "Back to the hotel"], ["fuel", "Breakfast and check out"], ["fuel", "Lunch"], ["do", "Halls: shortlist suppliers"], ["admin", "Badge and entry, Canton Fair"], ["rest", "Sleep"]]) {
+    assert.equal(p(cat, title), null, title);
+  }
+});
+
+test("steps splits a note into a checklist", () => {
+  assert.deepEqual(MT.steps("Lay out clothes, print your CV. Check the route; bring cash.\nPassport"), ["Lay out clothes, print your CV", "Check the route", "bring cash", "Passport"]);
+  assert.deepEqual(MT.steps(""), []);
+});
+
+test("blockDetails: timing, neighbours, slack and reminders", () => {
+  const m = MT.cleanMission(MT.TEMPLATES.workout.build(t(2026, 10, 15, 12)));
+  const hike = m.blocks.find((b) => b.title === "Long hike");
+  const d = MT.blockDetails(m, hike.id, t(2026, 10, 24, 9));
+  assert.equal(d.kind, "do");
+  assert.equal(d.timing.phase, "now");
+  assert.equal(d.timing.minutes, 300);
+  assert.equal(Math.round(d.timing.progress * 100), 10);
+  assert.equal(d.prev.title, "Travel to the trailhead");
+  assert.equal(d.next.title, "Turn-back time", "the next main block, Plan B excluded");
+  assert.equal(d.planB.map((b) => b.title).join(), "Indoor stair session instead");
+  assert.equal(d.reminder, null, "already started");
+
+  const turnBack = m.blocks.find((b) => b.dl);
+  const early = MT.blockDetails(m, turnBack.id, t(2026, 10, 24, 7));
+  assert.equal(early.kind, "deadline");
+  assert.equal(early.timing.phase, "upcoming");
+  assert.deepEqual(early.reminder, { at: t(2026, 10, 24, 10, 30), minutesBefore: 30 });
+  assert.deepEqual(early.checklist, ["Wherever you are at 11:00, turn back"]);
+
+  const rain = m.blocks.find((b) => b.branch);
+  const pb = MT.blockDetails(m, rain.id, t(2026, 10, 24, 7));
+  assert.equal(pb.kind, "planB");
+  assert.deepEqual(pb.replaces.map((b) => b.title), ["Long hike"]);
+
+  const meal = m.blocks.find((b) => b.title === "Recovery meal");
+  assert.equal(MT.blockDetails(m, meal.id, t(2026, 10, 25)).timing.phase, "past");
+  assert.equal(MT.blockDetails(m, "nope", 0), null);
+});
+
+test("blockDetails: slack to the next block", () => {
+  const m = MT.cleanMission({ blocks: [
+    { id: "a", date: "2026-10-16", s: "17:30", e: "19:30", title: "Bay" },
+    { id: "b", date: "2026-10-16", s: "19:45", e: "21:00", cat: "fuel", title: "Dinner: hotpot" },
+  ] });
+  assert.equal(MT.blockDetails(m, "a", 0).slackMs, 15 * 60000);
+  assert.equal(MT.blockDetails(m, "b", 0).slackMs, null);
+});

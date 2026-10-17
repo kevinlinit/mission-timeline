@@ -8,4 +8,5 @@ export * from "./live.js";
 export * from "./timeline.js";
 export * from "./templates.js";
 export * from "./format.js";
+export * from "./details.js";
 export * from "./sync.js";
