@@ -155,6 +155,7 @@ test("placeOf guesses where a block happens from its title", () => {
   assert.deepEqual(p("fuel", "Dinner: Chaoshan beef hotpot"), { query: "Chaoshan beef hotpot", directions: false });
   assert.deepEqual(p("fuel", "Lunch near Huaqiangbei"), { query: "Huaqiangbei", directions: false });
   assert.deepEqual(p("do", "Onsen at 萬力屋"), { query: "萬力屋", directions: false });
+  assert.deepEqual(p("do", "Climb to Lantau Peak"), { query: "Lantau Peak", directions: false });
   assert.deepEqual(p("do", "Shenzhen Bay Park at sunset"), { query: "Shenzhen Bay Park", directions: false });
   for (const [cat, title] of [["move", "Back to the hotel"], ["fuel", "Breakfast and check out"], ["fuel", "Lunch"], ["do", "Halls: shortlist suppliers"], ["admin", "Badge and entry, Canton Fair"], ["rest", "Sleep"]]) {
     assert.equal(p(cat, title), null, title);

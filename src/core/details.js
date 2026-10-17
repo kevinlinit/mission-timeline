@@ -87,7 +87,8 @@ export function placeOf(b) {
   } else if (MEAL.test(title)) {
     query = after(/^\S+\s+(?:near|at|in|inside)\s+(.+)$/i); // "Lunch near Huaqiangbei"; "Breakfast and check out" -> none
   } else {
-    query = atPlace() || title;
+    // "Climb to Lantau Peak" -> Lantau Peak
+    query = atPlace() || after(/^(?:climb|hike|walk|head|go|ride|cycle|run|swim|drive)\s+(?:up\s+|down\s+|back\s+)?to\s+(.+)$/i) || title;
   }
   if (!query) return null;
   query = query.split(/,|\s\/\s|\s\(/)[0].replace(/[.。]$/, "").trim();
