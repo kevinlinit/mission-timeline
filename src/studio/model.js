@@ -99,6 +99,7 @@ export function caseSummary(c) {
     customer: c.customer,
     trip: { start: c.trip.start, end: c.trip.end, destinations: c.trip.destinations, travellers: c.trip.travellers, tags: c.trip.tags },
     itineraries: c.itineraries.length,
+    questionnaire: !!c.intake,
     shared: shared.length,
     progress: { done: blocks.filter((b) => b.status).length, total: blocks.length },
     lastActivity: c.history.at(-1) || null,
@@ -113,7 +114,7 @@ export function matches(c, f = {}) {
   if (f.priority && f.priority !== c.priority) return false;
   if (f.assignee === "none" ? c.assignee : f.assignee && f.assignee !== c.assignee) return false;
   if (f.q) {
-    const hay = [c.ref, c.customer.name, c.customer.email, c.customer.phone, ...c.trip.destinations, ...c.trip.tags, c.trip.request]
+    const hay = [c.intake ? "questionnaire" : "", c.ref, c.customer.name, c.customer.email, c.customer.phone, ...c.trip.destinations, ...c.trip.tags, c.trip.request]
       .join(" ").toLowerCase();
     if (!f.q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w))) return false;
   }

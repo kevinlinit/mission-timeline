@@ -30,7 +30,7 @@ export const ACCOUNT_ENDPOINTS = [
 export const isAccountPath = (path) => /^\/api\/v1\/(auth|me)(\/|\.json$|$)/.test(path) && !isStudioPath(path);
 
 /** Studio (staff) routes, and the customer side of them under /me/studio. */
-export const isStudioPath = (path) => /^\/api\/v1\/(studio|me\/studio)(\/|\.json$|$)/.test(path);
+export const isStudioPath = (path) => /^\/api\/v1\/(studio|me\/studio|intake)(\/|\.json$|$)/.test(path);
 
 /**
  * @param config        { enabled, webClientId, iosClientId }

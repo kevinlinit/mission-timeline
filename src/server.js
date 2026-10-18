@@ -98,7 +98,9 @@ export function createServer({
           }
         }
         const api = studioPath ? studioApi : accountApi;
-        const r = await api.handle({ method: req.method, path, query: url.searchParams, headers: req.headers, body });
+        // Behind a proxy (Render, Fly, …) the visitor's address is the first in X-Forwarded-For.
+        const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
+        const r = await api.handle({ method: req.method, path, query: url.searchParams, headers: req.headers, body, ip });
         sendJson(req, res, r, url.searchParams.has("pretty"));
       } else if (path === "/api" || path.startsWith("/api/")) {
         const r = handle(repo, { method: req.method, path, query: url.searchParams }, now());

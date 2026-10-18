@@ -19,12 +19,17 @@
  *   DELETE /studio/cases/:id
  *   PUT    /studio/staff/:email                         { role }
  *   DELETE /studio/staff/:email
+ * Questionnaire (public, from the travel-survey site):
+ *   POST   /intake                                     the survey's JSON record -> { ok, ref, updated }
+ * Staff, for a case that came from the questionnaire:
+ *   POST   /studio/cases/:id/ideas/:ideaId/draft       start an itinerary from a route idea
  * Customers:
  *   GET    /me/studio                                   { studio, trips: [{ caseId, ref, status, planner, sharedAt, mission }] }
  *   PUT    /me/studio/trips/:mid/progress               { blocks: { [id]: { status, at } }, memos } -> { mission }
  */
 import { HttpError, bearerAccount, respond } from "./http.js";
 import { StudioError } from "../studio/store.js";
+import { IntakeError, brief, ideas, parseIntake } from "../studio/intake.js";
 import { OPEN_STAGES, PIPELINE, PRIORITIES, ROLES, customerMission, normEmail } from "../studio/model.js";
 
 const B = "/api/v1";
@@ -42,6 +47,8 @@ export const STUDIO_ENDPOINTS = [
   { method: "PUT", path: `${B}/studio/cases/{id}/itineraries/{missionId}`, description: "Staff: replace an itinerary's mission. Shared ones update in the customer's app." },
   { method: "POST", path: `${B}/studio/cases/{id}/itineraries/{missionId}/share`, description: "Staff: { shared: true } to send it to the customer's app (by their email), false to take it back." },
   { method: "GET", path: `${B}/studio/staff.json`, description: "Staff: the staff list. Admins change it with PUT/DELETE /studio/staff/{email}." },
+  { method: "POST", path: `${B}/intake`, description: "The travel-survey questionnaire: opens a New inquiry case (or updates this email's early one). Public, rate-limited." },
+  { method: "POST", path: `${B}/studio/cases/{id}/ideas/{ideaId}/draft`, description: "Staff: start an itinerary from one of the route ideas for the case's questionnaire." },
   { method: "GET", path: `${B}/me/studio.json`, description: "Customers: trips your studio shared with your email." },
   { method: "PUT", path: `${B}/me/studio/trips/{missionId}/progress`, description: "Customers: your done / changed / skipped marks and debrief notes { blocks, memos }; the studio sees them." },
 ];
@@ -68,6 +75,8 @@ export function createStudioApi({ config, accounts, sessions, studio }) {
     ["GET", "/studio/staff", staffOnly(listStaff)],
     ["PUT", "/studio/staff/([^/]+)", adminOnly(putStaff)],
     ["DELETE", "/studio/staff/([^/]+)", adminOnly(deleteStaff)],
+    ["POST", "/intake", intake],
+    ["POST", `/studio/cases/${ID}/ideas/([a-z0-9-]{1,40})/draft`, staffOnly(draftIdea)],
     ["GET", "/me/studio", customer(myTrips)],
     ["PUT", `/me/studio/trips/${MID}/progress`, customer(progress)],
   ].map(([method, pattern, fn]) => ({ method, re: new RegExp(`^${B}${pattern}$`), fn }));
@@ -176,6 +185,37 @@ export function createStudioApi({ config, accounts, sessions, studio }) {
   async function putStaff({ by, body }, email) { return ok({ staff: await withNames(await studio.setStaff(email, body.role, by)) }); }
   async function deleteStaff({ by }, email) { return ok({ staff: await withNames(await studio.removeStaff(email, by)) }); }
 
+  // ---------- the questionnaire ----------
+
+  // A few submissions per address per hour is plenty for a person and stops a flood.
+  const recent = new Map(); // ip -> [ms]
+  const LIMIT = 8, WINDOW = 3600000;
+
+  async function intake(req) {
+    if (!config.enabled) throw new HttpError(503, "not_configured", "The studio isn't set up on this server yet.");
+    const body = req.body || {};
+    // The survey has a hidden "website" field people never see; bots fill it in.
+    if (body.website) return { status: 200, body: { ok: true } };
+    const ip = String(req.ip || "?");
+    const t = Date.now();
+    const hits = (recent.get(ip) || []).filter((x) => t - x < WINDOW);
+    if (hits.length >= LIMIT) throw new HttpError(429, "too_many", "Too many questionnaires from here. Please try again later or email us.");
+    recent.set(ip, [...hits, t]);
+    if (recent.size > 5000) recent.clear();
+    let parsed;
+    try { parsed = parseIntake(body); } catch (e) {
+      if (e instanceof IntakeError) throw new HttpError(400, "bad_questionnaire", e.message);
+      throw e;
+    }
+    const r = await studio.intake(parsed);
+    return { status: r.updated ? 200 : 201, body: { ok: true, ref: r.case.ref, updated: r.updated, studio: { name: config.studioName || "Your studio" } } };
+  }
+
+  async function draftIdea({ by }, id, ideaId) {
+    const r = await studio.draftFromIdea(id, ideaId, by);
+    return { status: 201, body: { case: await withCustomer(r.case), missionId: r.missionId } };
+  }
+
   // ---------- customers ----------
 
   async function myTrips({ account }) {
@@ -221,5 +261,11 @@ const ok = (body) => ({ status: 200, body });
 
 /** A case as staff see it: each itinerary also comes with `live`, the mission with the customer's marks. */
 export function staffCase(c) {
-  return { ...c, itineraries: c.itineraries.map((it) => ({ ...it, live: customerMission(it) })) };
+  const { intake: q, ...rest } = c;
+  return {
+    ...rest,
+    itineraries: c.itineraries.map((it) => ({ ...it, live: customerMission(it) })),
+    // The questionnaire as the planner reads it: the brief, route ideas, and every answer by section.
+    questionnaire: q ? { receivedAt: q.receivedAt, submittedAt: q.submittedAt, brief: brief(q.answers), ideas: ideas(q.answers), sections: q.sections } : null,
+  };
 }

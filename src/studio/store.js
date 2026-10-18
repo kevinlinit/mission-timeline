@@ -12,6 +12,7 @@
 import { join } from "node:path";
 import { cleanMission, rid } from "../core/index.js";
 import { atomicWrite, readJson } from "../auth/accounts.js";
+import { caseFromIntake, draftItinerary, ideas as routeIdeas } from "./intake.js";
 import {
   MAX_ITINERARIES, MAX_NOTE, PRIORITIES, ROLES, STAGES, caseSummary, cleanCustomer, cleanProgress, cleanTrip,
   customerMission, isEmail, itineraryId, matches, normEmail, stageLabel,
@@ -139,6 +140,59 @@ export class StudioStore {
       data.cases[id] = c;
       await this.save();
       return c;
+    });
+  }
+
+  /**
+   * A questionnaire from the travel-survey site (already parsed by parseIntake). Opens a New inquiry
+   * case, or, if this email already has an early case from a questionnaire, updates that one.
+   * Returns { case, updated }.
+   */
+  intake({ answers, sections, submittedAt }) {
+    return this.serial(async () => {
+      const data = await this.load();
+      const t = this.now();
+      const fields = caseFromIntake(answers, t);
+      const customer = cleanCustomer(fields.customer);
+      const record = { receivedAt: t, submittedAt: submittedAt || t, sections, answers };
+      const existing = Object.values(data.cases)
+        .filter((c) => c.intake && c.customer.email === customer.email && ["new", "planning"].includes(c.status))
+        .sort((x, y) => y.createdAt - x.createdAt)[0];
+      if (existing) {
+        existing.intake = record;
+        if (existing.status === "new") { existing.trip = cleanTrip(fields.trip); existing.customer = { ...existing.customer, ...Object.fromEntries(Object.entries(customer).filter(([, v]) => v)) }; }
+        existing.history.push({ at: t, by: "customer", type: "intake", text: "Sent an updated questionnaire" });
+        existing.revision += 1;
+        existing.updatedAt = t;
+        await this.save();
+        return { case: existing, updated: true };
+      }
+      data.seq += 1;
+      const id = `c_${rid()}${rid().slice(0, 4)}`;
+      const c = {
+        id, ref: `C-${String(data.seq).padStart(4, "0")}`, revision: 1, createdAt: t, updatedAt: t, createdBy: "customer",
+        status: "new", priority: PRIORITIES.includes(fields.priority) ? fields.priority : "normal", assignee: "",
+        customer, trip: cleanTrip(fields.trip), intake: record,
+        notes: [], history: [{ at: t, by: "customer", type: "intake", text: "Questionnaire received: case opened" }], itineraries: [],
+      };
+      data.cases[id] = c;
+      await this.save();
+      return { case: c, updated: false };
+    });
+  }
+
+  /** Start an itinerary from one of the route ideas for a case's questionnaire. Returns { case, missionId }. */
+  draftFromIdea(id, ideaId, by) {
+    return this.change(id, by, undefined, (c, log) => {
+      if (!c.intake) throw new StudioError(409, "no_questionnaire", "This case has no questionnaire to draft from.");
+      const idea = routeIdeas(c.intake.answers, { count: 50 }).find((x) => x.id === ideaId);
+      if (!idea) throw new StudioError(404, "not_found", "No such idea.");
+      if (c.itineraries.length >= MAX_ITINERARIES) throw new StudioError(413, "too_many", `At most ${MAX_ITINERARIES} itineraries per case.`);
+      const t = this.now();
+      const m = cleanMission({ ...draftItinerary(idea, c.intake.answers, c.customer.name), id: itineraryId(c.id), createdAt: t, updatedAt: t });
+      c.itineraries.push({ mission: m, shared: false, sharedAt: 0, progress: { blocks: {}, memos: {}, at: 0 } });
+      log("itinerary", `Drafted “${m.name}” from the questionnaire`);
+      c.lastItinerary = m.id;
     });
   }
 
