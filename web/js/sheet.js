@@ -12,7 +12,7 @@ const KIND_LABEL = { deadline: "Hard deadline", planB: "Plan B" };
 const kindLabel = (d) => d.kind === "planB" ? `Plan B · ${d.block.branch}` : KIND_LABEL[d.kind] || CATS[d.kind][0];
 
 /**
- * @param host  { mission(), now(m), editMode(), onStatus(m, id, status), onEdit(id), onSwitchPlanB(m, d) }
+ * @param host  { mission(), now(m), editMode(), canEditBlocks(m), onStatus(m, id, status), onEdit(id), onSwitchPlanB(m, d) }
  */
 export function createSheet(host) {
   const root = document.createElement("div");
@@ -148,7 +148,7 @@ export function createSheet(host) {
     if (host.editMode()) {
       if (d.kind === "planB" && d.replaces.some((x) => x.status !== "changed")) out.push(`<button type="button" class="btn" data-sheet-switch>🔀 Switch to Plan B</button>`);
       const st = (s, label) => `<button type="button" class="btn" data-sheet-status="${s}" aria-pressed="${b.status === s}">${label}</button>`;
-      out.push(`<div class="sheet-status">${st("done", "✓ Done")}${st("changed", "~ Changed")}${st("skipped", "✕ Skipped")}<button type="button" class="btn" data-sheet-edit>Edit</button></div>`);
+      out.push(`<div class="sheet-status">${st("done", "✓ Done")}${st("changed", "~ Changed")}${st("skipped", "✕ Skipped")}${host.canEditBlocks?.(m) === false ? "" : `<button type="button" class="btn" data-sheet-edit>Edit</button>`}</div>`);
     }
     return out.length ? `<div class="sheet-actions">${out.join("")}</div>` : "";
   }

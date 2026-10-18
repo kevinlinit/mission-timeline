@@ -37,7 +37,7 @@ async function call(method, path, { body, token } = {}) {
  * @param local     { get(): { missions, tombstones }, set(missions, tombstones) }  this browser's missions
  * @param onChange  called when sign-in or sync state changes, to redraw
  */
-export function createAccount({ local, onChange }) {
+export function createAccount({ local, onChange, onSynced = () => {}, onSignedOut = () => {} }) {
   let config = null;          // { enabled, google: { webClientId } } from the server, or null if there's no server
   let session = load(SESSION_KEY); // { token, expiresAt, account }
   let sync = load(SYNC_KEY) || { revision: 0, lastSynced: null, error: null };
@@ -87,7 +87,16 @@ export function createAccount({ local, onChange }) {
     window.google?.accounts?.id?.disableAutoSelect?.();
     session = null; save(SESSION_KEY, null);
     sync = { revision: 0, lastSynced: null, error: null }; save(SYNC_KEY, sync);
+    onSignedOut();
     changed();
+  }
+
+  /** A signed-in request to the server: { status, data }. Null when signed out. */
+  async function request(method, path, body) {
+    if (!session || !config?.enabled) return null;
+    const r = await call(method, path, { token: session.token, body });
+    if (r.status === 401) { fail(r); onSignedOut(); changed(); }
+    return r;
   }
 
   /** Sync soon (after an edit); several edits in a row make one sync. */
@@ -115,6 +124,7 @@ export function createAccount({ local, onChange }) {
         }
         sync.lastSynced = Date.now();
         sync.error = null;
+        onSynced();
       } catch (e) {
         sync.error = e.message;
       } finally {
@@ -144,7 +154,7 @@ export function createAccount({ local, onChange }) {
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncNow(); });
   setInterval(() => { if (document.visibilityState === "visible") syncNow(); }, 60000);
 
-  return { init, renderButton, signOut, syncNow, schedule, state };
+  return { init, renderButton, signOut, syncNow, schedule, state, request };
 }
 
 const same = (a, b) => JSON.stringify([a.missions, a.tombstones]) === JSON.stringify([b.missions, b.tombstones || {}]);

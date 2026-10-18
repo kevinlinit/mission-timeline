@@ -9,6 +9,7 @@ import {
 import { listPublished, getMission } from "./api.js";
 import { createSheet } from "./sheet.js";
 import { createAccount } from "./account.js";
+import { createStudioTrips } from "./studio-trips.js";
 
 {
   const KEY = "mission-timeline:v1";
@@ -58,9 +59,13 @@ import { createAccount } from "./account.js";
   let published = []; // summaries of every mission the API publishes
 
   function setStatus(t, err) { const el = $("#status"); el.textContent = t || ""; el.classList.toggle("err", !!err); }
-  const current = () => missions.find((m) => m.id === selId) || null;
+  /** Your own missions, then the trips your studio shared with you. */
+  const allMissions = () => [...missions, ...studio.missions()];
+  const current = () => allMissions().find((m) => m.id === selId) || null;
+  const fromStudio = (m) => !!m && studio.has(m.id);
   let scrolledFor = null; // the mission the timeline was last scrolled to "now" for
   function commit(m) {
+    if (fromStudio(m)) { studio.update(m); render(); return; } // marks and notes go to the studio
     m.updatedAt = Date.now();
     const i = missions.findIndex((x) => x.id === m.id);
     if (i >= 0) missions[i] = m; else missions.push(m);
@@ -115,11 +120,20 @@ import { createAccount } from "./account.js";
         writeTombs(tombstones);
         if (JSON.stringify(list) === JSON.stringify(missions)) return;
         missions = list;
-        if (!missions.some((m) => m.id === selId)) selId = missions[0]?.id || null;
+        if (!allMissions().some((m) => m.id === selId)) selId = missions[0]?.id || null;
         persist(); render();
       },
     },
     onChange: renderAccount,
+    onSynced: () => studio.sync(),
+    onSignedOut: () => studio.clear(),
+  });
+  const studio = createStudioTrips({
+    account,
+    onChange: () => {
+      if (selId && !allMissions().some((m) => m.id === selId)) selId = missions[0]?.id || studio.missions()[0]?.id || null;
+      render();
+    },
   });
 
   function renderAccount(st) {
@@ -156,16 +170,19 @@ import { createAccount } from "./account.js";
     $("#import-btn").hidden = !editMode && missions.length > 0; // a first visit can still import a backup
     renderChips();
     const main = $("#main");
-    if (!missions.length || panel) { main.innerHTML = renderStart(!missions.length); bindStart(); return; }
+    const all = allMissions();
+    if (!all.length || panel) { main.innerHTML = renderStart(!all.length); bindStart(); return; }
     let m = current();
-    if (!m) { selId = missions[0].id; m = missions[0]; }
-    main.innerHTML = `<section class="live" id="live" aria-live="polite"></section>
+    if (!m) { selId = all[0].id; m = all[0]; }
+    const trip = fromStudio(m) && studio.trip(m.id);
+    main.innerHTML = `${trip ? `<p class="from-studio"><span>From ${esc(studio.studioName())}</span>${trip.planner ? ` · planned by ${esc(trip.planner.name || trip.planner.email)}` : ""}${trip.ref ? ` · <span class="muted">${esc(trip.ref)}</span>` : ""}</p>` : ""}
+      <section class="live" id="live" aria-live="polite"></section>
       <ul class="legend">${Object.entries(CATS).map(([k, [n]]) => `<li><span class="sw" style="--c:var(--${k})"></span>${n}</li>`).join("")}
         <li><span class="sw" style="border:2px dashed var(--ink-2);background:none"></span>Estimated</li>
         <li><span class="sw" style="--c:var(--hard);transform:rotate(45deg) scale(.8)"></span>Hard deadline</li>
         <li><span class="sw" style="border:1.5px dashed var(--do);background:none"></span>Plan B</li></ul>
       <div id="timeline">${renderTimeline(m)}</div>
-      ${editMode ? renderEditor(m) + renderMissionSettings(m) : ""}`;
+      ${editMode ? (trip ? renderStudioNote(m) : renderEditor(m) + renderMissionSettings(m)) : ""}`;
     bindMission(m);
     tick();
     // Opening a mission (not every re-render) scrolls the timeline to what's happening now.
@@ -175,11 +192,19 @@ import { createAccount } from "./account.js";
     }
   }
 
+  function renderStudioNote() {
+    return `<section class="panel studio-note"><h2>Planned with ${esc(studio.studioName())}</h2>
+      <p style="margin:0">Your planner keeps this itinerary up to date; changes they make appear here. Mark each block done, changed or skipped and write what happened each day: they see it too, and can adjust the rest of the trip.</p></section>`;
+  }
+
   function renderChips() {
     const el = $("#missions");
-    el.innerHTML = missions.map((m) => `<button class="chip" data-id="${esc(m.id)}" aria-pressed="${m.id === selId && !panel}">${esc(m.emoji)} ${esc(m.name)}</button>`).join("") +
+    const chip = (m, cls = "") => `<button class="chip${cls}" data-id="${esc(m.id)}" aria-pressed="${m.id === selId && !panel}">${esc(m.emoji)} ${esc(m.name)}</button>`;
+    const shared = studio.missions();
+    el.innerHTML = (shared.length ? `<span class="chip-group">From ${esc(studio.studioName())}</span>${shared.map((m) => chip(m, " studio")).join("")}<span class="chip-break" aria-hidden="true"></span>` : "") +
+      missions.map((m) => chip(m)).join("") +
       (editMode ? `<button class="btn small primary" id="new-mission">+ New mission</button>` : "") +
-      (missions.length ? `<button class="btn small mode" id="mode" aria-pressed="${editMode}">${editMode ? "✓ Done editing" : "✏️ Edit"}</button>` : "");
+      (allMissions().length ? `<button class="btn small mode" id="mode" aria-pressed="${editMode}">${editMode ? "✓ Done editing" : "✏️ Edit"}</button>` : "");
     el.querySelectorAll(".chip").forEach((b) => (b.onclick = () => { sheet.close(); selId = b.dataset.id; panel = null; editing = null; memoEditing = null; persist(); render(); }));
     const nm = $("#new-mission"); if (nm) nm.onclick = () => { panel = "new"; editing = null; render(); };
     const md = $("#mode"); if (md) md.onclick = () => setMode(!editMode);
@@ -224,7 +249,7 @@ import { createAccount } from "./account.js";
       <div class="card"><div class="t"><span class="em" aria-hidden="true">${esc(em)}</span><button type="button" class="open" data-open="${esc(b.id)}" aria-haspopup="dialog">${esc(b.title)}</button><span class="tag now" hidden>Now</span>${tags}</div>
         <div class="m num">${CATS[b.cat][0]}, ${esc(b.s)} to ${esc(b.e)}${nextDay ? " (next day)" : ""}</div>
         ${b.note ? `<div class="n">${esc(b.note)}</div>` : ""}
-        ${editMode ? `<div class="acts">${st("done")}${st("changed")}${st("skipped")}<button class="btn" data-act="edit" data-id="${esc(b.id)}">Edit</button></div>` : ""}</div></li>`;
+        ${editMode ? `<div class="acts">${st("done")}${st("changed")}${st("skipped")}${fromStudio(current()) ? "" : `<button class="btn" data-act="edit" data-id="${esc(b.id)}">Edit</button>`}</div>` : ""}</div></li>`;
   }
 
   function renderTimeline(m) {
@@ -293,7 +318,7 @@ import { createAccount } from "./account.js";
     if (ms) ms.onclick = () => { const v = $("#memo-in").value.trim(); if (v) m.memos[ms.dataset.date] = v; else delete m.memos[ms.dataset.date]; memoEditing = null; commit(m); };
     const mc = $("#memo-cancel"); if (mc) mc.onclick = () => { memoEditing = null; render(); };
 
-    if (!editMode) return;
+    if (!editMode || fromStudio(m)) return;
     $("#ed-save").onclick = () => {
       const title = $("#ed-title").value.trim(), date = $("#ed-date").value, s = $("#ed-s").value, e = $("#ed-e").value;
       if (!title || !date || toMin(s) === null || toMin(e) === null) { setStatus("A block needs a title, a date, a start and an end.", true); return; }
@@ -416,6 +441,7 @@ import { createAccount } from "./account.js";
     mission: current,
     now: nowFor,
     editMode: () => editMode,
+    canEditBlocks: (m) => !fromStudio(m),
     onStatus: (m, id, st) => { const b = m.blocks.find((x) => x.id === id); if (b) { b.status = b.status === st ? "" : st; commit(m); } },
     onEdit: (id) => { editing = { blockId: id }; render(); $("#editor")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
     onSwitchPlanB: (m, d) => {
