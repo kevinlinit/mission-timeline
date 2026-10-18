@@ -2,6 +2,8 @@
 
 The backend for Mission Timeline: a JSON API that serves timeline metadata to the web app and the [iOS app](https://github.com/kevinlinit/mission-timeline-iOS), plus the shared timeline logic both use.
 
+It's also the studio's back office: staff manage customer cases in the **studio console** (`/studio`) and send each customer a tailored itinerary that appears in their app ([Customer cases](#customer-cases-the-studio-console)).
+
 A mission is anything with a date and a goal, planned as timed blocks with hard deadlines and Plan B branches, followed live, then debriefed. The method comes from a nine-night trip across Kyushu and Shikoku, which is published here as the example mission.
 
 It runs two ways from the same code:
@@ -24,13 +26,18 @@ src/core/          shared timeline logic, ES modules, no I/O; the server and the
 src/api/
   repository.js    loads and validates data/
   router.js        the API as pure functions: request in, status and JSON out
+  account-routes.js sign-in and your own missions (/auth, /me)
+  studio-routes.js the studio's cases (/studio) and the customer's side (/me/studio)
+src/auth/          Google ID tokens, session tokens, accounts
+src/studio/        customer cases: the model (model.js) and their storage (store.js)
 src/server.js      node:http server: the API, the web app and /core/
 scripts/build.js   static export to dist/
 data/
   missions/*.json  published missions (one per file, or an export file)
   ios/latest.json  the iOS app's update feed
 web/               the web app, a client of the API
-test/              node:test: core, API, server, build
+web/studio/        the studio console for staff
+test/              node:test: core, API, server, auth, studio, build
 ```
 
 ## Run it
@@ -111,6 +118,51 @@ Check it: `https://<server>/api/v1/auth/config.json` should say `"enabled": true
 - **Web on GitHub Pages**: repo **Settings → Secrets and variables → Actions → Variables → New variable** `PUBLIC_SERVER_URL` = the server's URL. The next publish writes it into `js/config.js`. (The web app served by the server itself needs nothing.)
 - **iOS**: see the iOS repo's README ("Sign in with Google").
 
+## Customer cases: the studio console
+
+Mission Timeline is the customer's trip assistant; the studio behind it plans each trip. Staff work on customer cases at **`/studio`** on the Node server (it needs sign-in set up, above).
+
+**Who gets in.** Staff sign in with Google. The server lets in the emails on its staff list, each an **admin** or a **planner**:
+
+| Variable | Value |
+| --- | --- |
+| `STUDIO_STAFF` | `admin:you@studio.com,planner:mei@studio.com` (a bare email is a planner). These can't be removed in the console, so the studio can't lock itself out. |
+| `STUDIO_NAME` | Shown to customers as "From *name*". Default "Your studio". |
+
+Admins add, re-role and remove other staff on the console's **Staff** page; planners can do everything else. Anyone else who signs in is told they're not on the list.
+
+**A case** is one customer's trip, from first contact to home again:
+
+- **Pipeline**: New inquiry → Planning → Proposal sent → Confirmed → Travelling → Completed, or Cancelled. Click a stage to move the case; sharing the first itinerary moves an early case to Proposal sent.
+- **Handling**: planner (assignee) and priority (low, normal, high, urgent). The list puts urgent first, then the most recently touched.
+- **Customer and trip**: name, email (how the itinerary reaches their app), phone; dates, destinations, travellers, budget, where the inquiry came from, tags, and what they asked for in their words.
+- **Notes**: internal, never shown to the customer.
+- **History**: every change, by whom and when, including what the customer marked in the app.
+- **Itineraries**: one or more missions in the mission-timeline/v1 shape. The editor starts from a blank page, a template, a published trip, an export file or another itinerary on the case, moves all dates to the trip's start, and previews the timeline the way the customer sees it, with their marks.
+
+The case list filters by stage (with counts), planner (Mine, Unassigned, anyone), priority and a search across name, email, places, tags and the request. Two planners editing the same case can't overwrite each other: a change based on an old revision gets `409` and the console reloads the latest.
+
+**Delivery to the customer.** **Share** an itinerary and it appears in the customer's web and iOS app once they sign in with Google using the case's email, under **From *studio***. Changes the planner saves show up on their next sync. The customer can't edit the plan, but their done / changed / skipped marks and day notes go back to the case (its history and a progress bar on the itinerary). **Stop sharing**, cancelling or deleting the case takes it out of their app; signing out removes it from the device.
+
+**API.** Everything needs a session token; staff routes also need the staff list.
+
+| Route | |
+| --- | --- |
+| `GET /api/v1/studio/me` | you, your role, the pipeline |
+| `GET /api/v1/studio/cases?status=&assignee=&priority=&q=&open=1` | case summaries and counts per stage |
+| `POST /api/v1/studio/cases` | open a case `{ customer, trip, priority, assignee, note }` |
+| `GET` / `PATCH /api/v1/studio/cases/{id}` | a case; change `status`, `priority`, `assignee`, `customer`, `trip` (send `baseRevision`) |
+| `DELETE /api/v1/studio/cases/{id}` | admins only |
+| `POST /api/v1/studio/cases/{id}/notes` | `{ text }` |
+| `POST /api/v1/studio/cases/{id}/itineraries` | add `{ mission }` |
+| `PUT` / `DELETE /api/v1/studio/cases/{id}/itineraries/{missionId}` | replace or remove one |
+| `POST /api/v1/studio/cases/{id}/itineraries/{missionId}/share` | `{ shared: true \| false }` |
+| `GET /api/v1/studio/staff`, `PUT` / `DELETE /api/v1/studio/staff/{email}` | the staff list; changes are admins only |
+| `GET /api/v1/me/studio` | the customer's shared trips |
+| `PUT /api/v1/me/studio/trips/{missionId}/progress` | the customer's marks `{ blocks: { id: { status, at } }, memos }` |
+
+**Storage**: `STATE_DIR/studio/cases.json` and `staff.json`, written the same way as accounts.
+
 ## The data format
 
 `mission-timeline/v1`, shared by the API, the web app and the iOS app:
@@ -153,6 +205,9 @@ The place is guessed from the title ("Metro to Futian" → Futian, "Dinner: Chao
 **Node server.** Any Node 20+ host (Render, Fly.io, Railway, a VPS): run `npm start` with `HOST=0.0.0.0` and `PORT` set by the host. No build step or install is needed.
 
 ## Next steps
+
+- Email the customer when an itinerary is shared or changes.
+- Attach files to cases (tickets, vouchers) and show them on the matching block.
 
 - Push updates for the iOS Live Activity (APNs) from the server.
 - An OpenAPI description generated from the route table in `src/api/router.js`.
