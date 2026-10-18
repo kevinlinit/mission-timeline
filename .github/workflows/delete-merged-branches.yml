@@ -1,0 +1,29 @@
+# After every push to main, delete branches whose commits are all in main.
+# Publishing and archive branches are never touched.
+name: delete merged branches
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete fully merged branches
+        run: |
+          keep=" main gh-pages japan-trip-demo japan-trip-demo-archive ci-screenshots "
+          for branch in $(git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin); do
+            [ "$branch" = "HEAD" ] && continue
+            case "$keep" in *" $branch "*) continue ;; esac
+            if git merge-base --is-ancestor "origin/$branch" origin/main; then
+              echo "Deleting $branch: fully merged into main"
+              git push origin --delete "$branch"
+            else
+              echo "Keeping $branch: has commits not in main"
+            fi
+          done
