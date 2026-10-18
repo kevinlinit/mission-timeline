@@ -230,7 +230,8 @@ export function ideas(a, { routes = ROUTES, count = 3 } = {}) {
   return routes.map((r) => scoreRoute(r, a)).sort((x, y) => y.score - x.score).slice(0, count)
     .map(({ score, route, why, cautions }) => ({
       id: route.id, name: route.name, emoji: route.emoji, region: route.region, pitch: route.pitch,
-      match: Math.round(100 / (1 + Math.exp(-score / 12))),
+      score: Math.round(score),
+      match: Math.round(100 / (1 + Math.exp(-(score - 20) / 10))),
       why: why.slice(0, 4), cautions, plan: planNights(route, a),
     }));
 }

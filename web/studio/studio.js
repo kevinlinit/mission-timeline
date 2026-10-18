@@ -245,7 +245,7 @@ function renderList() {
       <div class="cr-name"><b>${esc(x.customer.name || x.customer.email)}</b>${x.assignee ? `<span class="av sm" title="${esc(staffName(x.assignee))}">${esc(initials(x.assignee))}</span>` : `<span class="av sm none" title="Unassigned">–</span>`}</div>
       <div class="cr-meta muted">${esc(x.trip.destinations.join(", ") || "Destination open")} · ${esc(span(x.trip.start, x.trip.end))}${x.trip.travellers ? ` · ${x.trip.travellers} pax` : ""}</div>
       ${x.shared ? `<div class="cr-prog" title="${x.progress.done} of ${x.progress.total} blocks marked by the customer"><i style="width:${pct}%"></i></div>` : ""}
-      <div class="cr-foot muted">${x.itineraries ? `${x.itineraries} itinerar${x.itineraries === 1 ? "y" : "ies"}${x.shared ? `, ${x.shared} shared` : ""} · ` : ""}${esc(ago(x.updatedAt))}</div>
+      <div class="cr-foot muted">${x.questionnaire ? `<span title="Came in through the questionnaire">📝</span> ` : ""}${x.itineraries ? `${x.itineraries} itinerar${x.itineraries === 1 ? "y" : "ies"}${x.shared ? `, ${x.shared} shared` : ""} · ` : ""}${esc(ago(x.updatedAt))}</div>
     </a></li>`;
   }).join("");
 }
@@ -352,6 +352,7 @@ function renderCase() {
 
     <div class="case-grid">
       <div class="col-main">
+        ${c.questionnaire ? questionnaireBox(c) : ""}
         <section class="box">
           <div class="box-head"><h3>Itineraries</h3><button class="btn small primary" id="it-new" type="button">+ New itinerary</button></div>
           ${c.itineraries.length ? `<ul class="its">${c.itineraries.map(itineraryCard).join("")}</ul>`
@@ -385,7 +386,7 @@ function renderCase() {
         </section>
         <section class="box">
           <h3>History</h3>
-          <ol class="history">${c.history.slice().reverse().map((h) => `<li class="h-${esc(h.type)}"><span>${esc(h.text)}</span><small class="muted">${h.by === "customer" ? `${esc(c.customer.name || "Customer")} in the app` : esc(staffName(h.by))} · ${esc(when(h.at))}</small></li>`).join("")}</ol>
+          <ol class="history">${c.history.slice().reverse().map((h) => `<li class="h-${esc(h.type)}"><span>${esc(h.text)}</span><small class="muted">${h.by === "customer" ? `${esc(c.customer.name || "Customer")}${h.type === "intake" ? ", questionnaire" : " in the app"}` : esc(staffName(h.by))} · ${esc(when(h.at))}</small></li>`).join("")}</ol>
         </section>
       </aside>
     </div>
@@ -416,8 +417,46 @@ function renderCase() {
   };
 
   $("#it-new").onclick = () => editItinerary(null);
+  $$("[data-draft]", $("#detail")).forEach((b) => (b.onclick = () => draftFromIdea(b.dataset.draft, b)));
   $$(".history li.h-progress", $("#detail")).forEach((li) => (li.onclick = () => li.classList.toggle("full")));
   $$("[data-it]", $("#detail")).forEach((b) => (b.onclick = () => itineraryAction(b.dataset.act, b.dataset.it, b)));
+}
+
+// ---------- the questionnaire ----------
+
+function questionnaireBox(c) {
+  const q = c.questionnaire;
+  const b = q.brief;
+  const drafted = new Set(c.history.filter((h) => /from the questionnaire$/.test(h.text)).map((h) => h.text));
+  return `<section class="box q-box">
+    <div class="box-head"><h3>📝 Questionnaire</h3><small class="muted">received ${esc(ago(q.receivedAt))}</small></div>
+    <p class="q-headline">${esc(b.headline)}</p>
+    ${b.flags.length ? `<ul class="q-flags">${b.flags.map((f) => `<li class="${f.level}">${f.level === "warn" ? "⚠️" : "•"} ${esc(f.text)}</li>`).join("")}</ul>` : ""}
+    <div class="q-brief">${b.sections.map((sec) => `<div><h4>${esc(sec.title)}</h4><dl>${sec.items.map((i) => `<dt>${esc(i.label)}</dt><dd>${esc(i.value)}</dd>`).join("")}</dl></div>`).join("")}</div>
+    <h4 class="q-ideas-h">Route ideas <small class="muted">from the studio's catalog, matched to these answers</small></h4>
+    <ol class="q-ideas">${q.ideas.map((x, i) => `<li class="idea">
+      <div class="idea-top"><b>${esc(x.emoji)} ${esc(x.name)}</b><span class="fit" title="How well it fits the answers"><i style="width:${x.match}%"></i></span><span class="num muted">${x.match}%</span></div>
+      <p class="idea-pitch">${esc(x.pitch)}</p>
+      ${x.why.length ? `<ul class="why">${x.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${x.cautions.length ? `<ul class="cautions">${x.cautions.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      <p class="plan">${x.plan.map((p) => `<span>${esc(p.place)} <b class="num">${p.nights}</b></span>`).join('<span class="arr">→</span>')}</p>
+      <button class="btn small${i === 0 ? " primary" : ""}" type="button" data-draft="${esc(x.id)}">${[...drafted].some((t) => t.includes(x.name)) ? "Draft another from this" : "Start itinerary from this"}</button>
+    </li>`).join("")}</ol>
+    <details class="q-all"><summary>Every answer</summary>${q.sections.map((sec) => `<h4>${esc(sec.title)}</h4><dl>${sec.items.map((i) => `<dt>${esc(i.question)}</dt><dd>${esc(i.display || "—")}</dd>`).join("")}</dl>`).join("")}</details>
+  </section>`;
+}
+
+async function draftFromIdea(ideaId, btn) {
+  btn.disabled = true;
+  btn.textContent = "Drafting…";
+  try {
+    const r = await api("POST", `studio/cases/${current.id}/ideas/${ideaId}/draft`);
+    current = r.case;
+    toast("Draft itinerary added: tailor it, then share it");
+    await refreshList(); renderList(); renderCase();
+    const it = current.itineraries.find((x) => x.mission.id === r.missionId);
+    if (it) editItinerary(it);
+  } catch (e) { toast(e.message, true); btn.disabled = false; }
 }
 
 function dirtyForm(form, onSave) {

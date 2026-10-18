@@ -29,7 +29,7 @@ src/api/
   account-routes.js sign-in and your own missions (/auth, /me)
   studio-routes.js the studio's cases (/studio) and the customer's side (/me/studio)
 src/auth/          Google ID tokens, session tokens, accounts
-src/studio/        customer cases: the model (model.js) and their storage (store.js)
+src/studio/        customer cases: the model, storage, the questionnaire (intake.js) and the route catalog (routes.js)
 src/server.js      node:http server: the API, the web app and /core/
 scripts/build.js   static export to dist/
 data/
@@ -160,6 +160,12 @@ The case list filters by stage (with counts), planner (Mine, Unassigned, anyone)
 | `GET /api/v1/studio/staff`, `PUT` / `DELETE /api/v1/studio/staff/{email}` | the staff list; changes are admins only |
 | `GET /api/v1/me/studio` | the customer's shared trips |
 | `PUT /api/v1/me/studio/trips/{missionId}/progress` | the customer's marks `{ blocks: { id: { status, at } }, memos }` |
+
+**The questionnaire.** Prospective customers fill in the [travel-survey](https://github.com/kevinlinit/travel-survey) questionnaire, which posts to `POST /api/v1/intake` (public; a hidden honeypot field and 8 responses per address per hour keep spam out). Each response opens a **New inquiry** case with the customer, dates, party, budget, cities, tags and priority filled in (high if it starts within a month, urgent within a week); a second response from the same email updates its early case. On the case page the planner gets:
+
+- **A brief**: one line for the trip's shape, then style, loves, stay, where they've been, and flags for what changes bookings (fears and conditions, public onsen and tattoos, allergies, a budget under the starting price, a close start date).
+- **Route ideas**: three routes from the studio's catalog (`src/studio/routes.js`, ten routes; edit it to add your own), scored against the answers with the reasons, cautions (a fear the route leans on, the wrong season, prefectures they've seen) and nights per place.
+- **Start itinerary from this** (`POST /api/v1/studio/cases/{id}/ideas/{ideaId}/draft`): a first day-by-day draft at their pace and morning preference, their dietary note on every meal, rain plans, and the celebration dinner on its date. It opens in the editor to tailor and share.
 
 **Storage**: `STATE_DIR/studio/cases.json` and `staff.json`, written the same way as accounts.
 
