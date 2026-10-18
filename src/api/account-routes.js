@@ -14,6 +14,7 @@
  */
 import { MAX_MISSIONS } from "../auth/accounts.js";
 import { GoogleTokenError } from "../auth/google.js";
+import { HttpError, bearerAccount, errorBody as error } from "./http.js";
 
 const BASE = "/api/v1";
 
@@ -26,12 +27,10 @@ export const ACCOUNT_ENDPOINTS = [
   { method: "PUT", path: `${BASE}/me/missions`, description: "Save your missions: { baseRevision, missions, tombstones }. 409 with the current state if it changed since baseRevision." },
 ];
 
-export const isAccountPath = (path) => /^\/api\/v1\/(auth|me)(\/|\.json$|$)/.test(path);
+export const isAccountPath = (path) => /^\/api\/v1\/(auth|me)(\/|\.json$|$)/.test(path) && !isStudioPath(path);
 
-class HttpError extends Error {
-  constructor(status, code, message, extra) { super(message); this.status = status; this.code = code; this.extra = extra; }
-}
-const error = (code, message, extra) => ({ error: { code, message }, ...extra });
+/** Studio (staff) routes, and the customer side of them under /me/studio. */
+export const isStudioPath = (path) => /^\/api\/v1\/(studio|me\/studio)(\/|\.json$|$)/.test(path);
 
 /**
  * @param config        { enabled, webClientId, iosClientId }
@@ -128,11 +127,7 @@ export function createAccountApi({ config, accounts, sessions, verifyGoogle }) {
 
   async function requireAccount(req) {
     requireEnabled();
-    const m = /^Bearer\s+(\S+)$/i.exec(req.headers?.authorization || "");
-    const claims = m && sessions.read(m[1]);
-    const account = claims && (await accounts.get(claims.uid));
-    if (!account || account.sessionVersion !== claims.ver) throw new HttpError(401, "unauthorized", "Sign in first.");
-    return account;
+    return bearerAccount(req, { accounts, sessions });
   }
 
   return { handle };
@@ -150,5 +145,7 @@ export function accountConfigFromEnv(env = process.env) {
     webClientId, iosClientId, secret,
     clientIds: [webClientId, iosClientId].filter(Boolean),
     stateDir: env.STATE_DIR || "",
+    staff: env.STUDIO_STAFF || "",
+    studioName: (env.STUDIO_NAME || "Your studio").slice(0, 60),
   };
 }

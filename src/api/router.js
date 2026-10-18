@@ -3,6 +3,7 @@ import {
   liveState, summarize, timelineDays, at as atDate,
 } from "../core/index.js";
 import { ACCOUNT_ENDPOINTS } from "./account-routes.js";
+import { STUDIO_ENDPOINTS } from "./studio-routes.js";
 
 /**
  * The HTTP API, as pure functions: request in, { status, body, cache } out. No sockets here, so the
@@ -88,7 +89,8 @@ function index({ repo }) {
     revision: repo.revision,
     missions: repo.missions().length,
     endpoints: routes.map((r) => ({ method: "GET", path: `${BASE}${r.path}.json`.replace("/.json", ".json"), description: r.doc, static: r.static }))
-      .concat(ACCOUNT_ENDPOINTS.map((e) => ({ ...e, static: false, signIn: true }))),
+      .concat(ACCOUNT_ENDPOINTS.map((e) => ({ ...e, static: false, signIn: true })))
+      .concat(STUDIO_ENDPOINTS.map((e) => ({ ...e, static: false, signIn: true }))),
   };
 }
 

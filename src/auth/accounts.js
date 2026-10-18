@@ -97,11 +97,11 @@ export class AccountStore {
   }
 }
 
-async function readJson(file) {
+export async function readJson(file) {
   try { return JSON.parse(await readFile(file, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
 }
 
-async function atomicWrite(file, data) {
+export async function atomicWrite(file, data) {
   await mkdir(join(file, ".."), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(tmp, JSON.stringify(data));
