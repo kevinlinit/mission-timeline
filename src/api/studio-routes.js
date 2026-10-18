@@ -87,7 +87,7 @@ export function createStudioApi({ config, accounts, sessions, studio }) {
       try {
         return await hit.r.fn(req, ...hit.m.slice(1).map(decodeURIComponent));
       } catch (e) {
-        if (e instanceof StudioError) throw new HttpError(e.status, e.code, e.message, e.extra && { ...e.extra, case: e.extra.case && staffCase(e.extra.case) });
+        if (e instanceof StudioError) throw new HttpError(e.status, e.code, e.message, e.extra && { ...e.extra, case: e.extra.case && (await withCustomer(e.extra.case)) });
         throw e;
       }
     });

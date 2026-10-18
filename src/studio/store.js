@@ -31,7 +31,7 @@ export function parseStaff(spec = "") {
   return out;
 }
 
-const PRIORITY_ORDER = Object.fromEntries(PRIORITIES.map((p, i) => [p, PRIORITIES.length - i]));
+const PRIORITY_ORDER = Object.fromEntries(PRIORITIES.map((p, i) => [p, i]));
 const COALESCE_MS = 30 * 60 * 1000;
 
 export class StudioStore {

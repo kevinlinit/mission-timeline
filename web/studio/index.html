@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Studio Cases</title>
+<meta name="description" content="The studio's console for customer cases: the pipeline, trip details, notes, history and the itineraries shared to each customer's Mission Timeline app.">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Old+Mincho:wght@600;900&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%82%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../css/styles.css">
+<link rel="stylesheet" href="studio.css">
+</head>
+<body class="studio">
+<header class="topbar">
+  <a class="brand" href="#/"><span aria-hidden="true">🗂️</span> <b id="studio-name">Studio</b> <span class="muted">cases</span></a>
+  <nav class="topnav" id="topnav" hidden>
+    <a href="#/" data-nav="cases">Cases</a>
+    <a href="#/staff" data-nav="staff">Staff</a>
+  </nav>
+  <div class="me" id="me"></div>
+</header>
+<p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+<main id="app" class="app"><p class="muted pad">Loading…</p></main>
+<dialog id="editor" class="editor" aria-labelledby="ed-heading"></dialog>
+<script type="module" src="studio.js"></script>
+</body>
+</html>
