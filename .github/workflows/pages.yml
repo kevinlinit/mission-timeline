@@ -17,9 +17,6 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,13 +38,19 @@ jobs:
           for branch in gh-pages japan-trip-demo; do
             git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "gh-pages:$branch"
           done
-      # Pages set to "GitHub Actions" (Settings → Pages → Source) deploys this artifact. Pages set to a
-      # branch uses the push above instead, and this step just notes that it was skipped.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  # Pages set to "GitHub Actions" (Settings → Pages → Source) serves this deployment. Its
+  # github-pages environment must allow the main branch (Settings → Environments → github-pages →
+  # Deployment branches and tags), or this job fails with "not allowed to deploy".
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
-        continue-on-error: true
-      - if: steps.deploy.outcome != 'success'
-        run: echo "::warning::Pages isn't set to deploy from GitHub Actions; it serves the gh-pages or japan-trip-demo branch pushed above."
