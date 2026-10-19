@@ -80,13 +80,14 @@ test("the legacy iOS feed URL still works", async () => {
   assert.ok(json(r).version);
 });
 
-test("serves the web app and the shared core", async () => {
+test("serves a landing page and the shared core; the apps live elsewhere", async () => {
   const page = await raw("/");
   assert.equal(page.status, 200);
-  assert.match(page.body.toString(), /<script type="module" src="js\/app.js">/);
+  assert.match(page.body.toString(), /Mission Timeline API/);
   const core = await raw("/core/index.js");
   assert.match(core.headers["content-type"], /javascript/);
-  assert.equal((await raw("/js/api.js")).status, 200);
+  assert.equal((await raw("/js/app.js")).status, 404);
+  assert.equal((await raw("/studio/")).status, 404);
 });
 
 test("can't escape the static folders", async () => {

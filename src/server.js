@@ -1,5 +1,6 @@
 /**
- * Mission Timeline server: the JSON API under /api/v1 plus the web app, with no dependencies.
+ * Mission Timeline server: the JSON API under /api/v1, with no dependencies. The web app
+ * (Light-Boat-OfficialSite) and the studio console (mission-timeline-management) are separate sites.
  *
  *   npm start                     PORT=8080 HOST=0.0.0.0 DATA_DIR=./data
  *
@@ -39,10 +40,13 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
-/** URL prefix -> folder. The web app imports the shared core from /core/. */
+/**
+ * URL prefix -> folder: the shared core (for anyone who wants to load it from here) and a landing
+ * page. The web app and the studio console live in their own repositories and call this API.
+ */
 const STATIC_MOUNTS = [
   ["/core/", join(ROOT, "src", "core")],
-  ["/", join(ROOT, "web")],
+  ["/", join(ROOT, "public")],
 ];
 
 const CACHE = {
@@ -197,7 +201,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.log(auth.enabled ? `Sign-in with Google is on (accounts in ${auth.stateDir || "./var"}).` : "Sign-in is off: set GOOGLE_WEB_CLIENT_ID and SESSION_SECRET to turn it on.");
     if (auth.enabled) {
       const staff = Object.keys(parseStaff(auth.staff)).length;
-      console.log(`Studio console: http://${host}:${port}/studio/ (${staff ? `${staff} staff from STUDIO_STAFF` : "set STUDIO_STAFF=admin:you@example.com to let yourself in"}).`);
+      console.log(`Studio API on (${staff ? `${staff} staff from STUDIO_STAFF` : "set STUDIO_STAFF=admin:you@example.com to let yourself in"}); the console is mission-timeline-management.`);
     }
   });
 }

@@ -1,22 +1,30 @@
 # Mission Timeline
 
-The backend for Mission Timeline: a JSON API that serves timeline metadata to the web app and the [iOS app](https://github.com/kevinlinit/mission-timeline-iOS), plus the shared timeline logic both use.
+The backend for Mission Timeline and the Light Boat studio: a JSON API that serves timeline metadata, accounts and sync, customer cases and the questionnaire intake, plus the shared timeline logic every client uses.
 
-It's also the studio's back office: staff manage customer cases in the **studio console** (`/studio`) and send each customer a tailored itinerary that appears in their app ([Customer cases](#customer-cases-the-studio-console)).
+| Repository | What it is |
+| --- | --- |
+| **mission-timeline** (this one) | The backend: the API, sign-in, cases, the questionnaire intake, published missions |
+| [Light-Boat-OfficialSite](https://github.com/kevinlinit/Light-Boat-OfficialSite) | The official site, and the Mission Timeline web app customers use (`/app/`) |
+| [mission-timeline-management](https://github.com/kevinlinit/mission-timeline-management) | The studio console where staff manage customer cases |
+| [mission-timeline-IOS](https://github.com/kevinlinit/mission-timeline-IOS) | The iPhone app |
+| [travel-survey](https://github.com/kevinlinit/travel-survey) | The questionnaire that opens a case |
+
+The web app and the console are static sites; each keeps a copy of `src/core` (their `npm run sync-core` refreshes it) and calls this API across origins (bearer tokens, CORS open).
 
 A mission is anything with a date and a goal, planned as timed blocks with hard deadlines and Plan B branches, followed live, then debriefed. The method comes from a nine-night trip across Kyushu and Shikoku, which is published here as the example mission.
 
 It runs two ways from the same code:
 
 - **Node server** (`npm start`): every endpoint, including the live state and templates built for a date.
-- **Static export** (`npm run build`): every endpoint that doesn't depend on the clock, as `.json` files, plus the web app. GitHub Pages serves it for free.
+- **Static export** (`npm run build`): every endpoint that doesn't depend on the clock, as `.json` files. GitHub Pages serves it for free; the web app and the iOS app read published missions from it.
 
 No dependencies. Node 20 or later.
 
 ## Layout
 
 ```
-src/core/          shared timeline logic, ES modules, no I/O; the server and the web app load the same files
+src/core/          shared timeline logic, ES modules, no I/O; the server, the web app and the console use the same files
   time.js          wall-clock ("floating") time, time zones, labels, countdowns
   model.js         the mission-timeline/v1 model: categories, cleaning and validation
   live.js          what's happening at a given moment
@@ -30,13 +38,12 @@ src/api/
   studio-routes.js the studio's cases (/studio) and the customer's side (/me/studio)
 src/auth/          Google ID tokens, session tokens, accounts
 src/studio/        customer cases: the model, storage, the questionnaire (intake.js) and the route catalog (routes.js)
-src/server.js      node:http server: the API, the web app and /core/
+src/server.js      node:http server: the API, /core/ and a landing page
 scripts/build.js   static export to dist/
 data/
   missions/*.json  published missions (one per file, or an export file)
   ios/latest.json  the iOS app's update feed
-web/               the web app, a client of the API
-web/studio/        the studio console for staff
+public/            the landing page at /
 test/              node:test: core, API, server, auth, studio, build
 ```
 
@@ -115,12 +122,12 @@ Check it: `https://<server>/api/v1/auth/config.json` should say `"enabled": true
 
 **3. Point the apps at it**
 
-- **Web on GitHub Pages**: repo **Settings → Secrets and variables → Actions → Variables → New variable** `PUBLIC_SERVER_URL` = the server's URL. The next publish writes it into `js/config.js`. (The web app served by the server itself needs nothing.)
+- **Web app and studio console**: set the repository variable `SERVER_URL` to the server's URL in [Light-Boat-OfficialSite](https://github.com/kevinlinit/Light-Boat-OfficialSite) and [mission-timeline-management](https://github.com/kevinlinit/mission-timeline-management), and add both sites' addresses to the Google web client's **Authorized JavaScript origins**.
 - **iOS**: see the iOS repo's README ("Sign in with Google").
 
 ## Customer cases: the studio console
 
-Mission Timeline is the customer's trip assistant; the studio behind it plans each trip. Staff work on customer cases at **`/studio`** on the Node server (it needs sign-in set up, above).
+Mission Timeline is the customer's trip assistant; the studio behind it plans each trip. Staff work on customer cases in the studio console ([mission-timeline-management](https://github.com/kevinlinit/mission-timeline-management)), which calls this server's `/api/v1/studio` (it needs sign-in set up, above).
 
 **Who gets in.** Staff sign in with Google. The server lets in the emails on its staff list, each an **admin** or a **planner**:
 
@@ -187,7 +194,7 @@ Add a mission as `data/missions/<id>.json` (ids are lowercase letters, digits an
 
 ## Web app
 
-`web/` is a client of the API. Missions you make are kept in your browser (`localStorage`). Every mission published in `data/missions/` is added to the mission list the first time the app sees it (from `/api/v1/missions.json`); after that it's yours to mark and edit, and if you delete it, it isn't added back (it stays offered under **New mission**). The iOS app does the same. It imports the shared core from `/core/`, so it needs to be served (by `npm start` or from the static export), not opened as a file.
+The web app is now in [Light-Boat-OfficialSite](https://github.com/kevinlinit/Light-Boat-OfficialSite) (`app/`). Missions you make are kept in your browser (`localStorage`). Every mission published in `data/missions/` is added to the mission list the first time the app sees it (from `/api/v1/missions.json`); after that it's yours to mark and edit, and if you delete it, it isn't added back. The iOS app does the same.
 
 ### Block details
 
@@ -206,7 +213,7 @@ The place is guessed from the title ("Metro to Futian" → Futian, "Dinner: Chao
 
 ## Deploying
 
-**GitHub Pages (static).** On every push to `main`, the `publish` workflow runs the tests, builds `dist/` and pushes it to the `gh-pages` branch. It also pushes the same build to `japan-trip-demo`, the branch Pages currently deploys, so the live site updates either way (the old demo is kept on the branch `japan-trip-demo-archive`). The site and the static API are then at `https://kevinlinit.github.io/mission-timeline/`, with the iOS feed staying at `/ios/latest.json`.
+**GitHub Pages (static).** On every push to `main`, the `publish` workflow runs the tests, builds `dist/` (the static API, the iOS update feed, the core and a landing page) and deploys it to GitHub Pages, at `https://kevinlinit.github.io/mission-timeline/`; the iOS feed stays at `/ios/latest.json`. With Pages set to **GitHub Actions**, its `github-pages` environment must allow `main` (Settings → Environments → github-pages). The build is also pushed to the `gh-pages` and `japan-trip-demo` branches for a branch-based Pages source.
 
 **Node server.** Any Node 20+ host (Render, Fly.io, Railway, a VPS): run `npm start` with `HOST=0.0.0.0` and `PORT` set by the host. No build step or install is needed.
 
