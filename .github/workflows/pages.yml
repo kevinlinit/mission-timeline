@@ -1,5 +1,6 @@
-# Builds the static site and API (npm run build) and publishes dist/ to the gh-pages branch, and to
-# japan-trip-demo, the branch GitHub Pages currently deploys. Either branch can be the Pages source.
+# Builds the static site and API (npm run build) and publishes dist/ every way GitHub Pages can take it:
+# deployed directly (Pages source "GitHub Actions", recommended), and pushed to the gh-pages and
+# japan-trip-demo branches (Pages source "Deploy from a branch").
 # (The old demo is kept on the branch japan-trip-demo-archive.)
 name: publish
 on:
@@ -9,12 +10,16 @@ on:
 permissions:
   contents: write
   pages: write
+  id-token: write
 concurrency:
   group: publish
   cancel-in-progress: true
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,10 +41,13 @@ jobs:
           for branch in gh-pages japan-trip-demo; do
             git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" "gh-pages:$branch"
           done
-      # A push made with the workflow's own token doesn't reliably start a Pages build, which left the
-      # site serving an old copy. Ask for one explicitly (works whichever branch Pages deploys).
-      - name: Ask GitHub Pages to rebuild
-        run: |
-          curl -sS -X POST -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/pages/builds" | tee build.json
-          grep -q '"status"' build.json || echo "::warning::Couldn't request a Pages build: $(cat build.json)"
+      # Pages set to "GitHub Actions" (Settings → Pages → Source) deploys this artifact. Pages set to a
+      # branch uses the push above instead, and this step just notes that it was skipped.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - if: steps.deploy.outcome != 'success'
+        run: echo "::warning::Pages isn't set to deploy from GitHub Actions; it serves the gh-pages or japan-trip-demo branch pushed above."
